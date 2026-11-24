@@ -59,7 +59,9 @@ DotCraft talks to the same C# language server as Visual Studio Code's C# extensi
 
 ### Run, test and debug
 
-Run configurations are created from the solution: one per executable project and launch profile, plus the tests of each test project. Build errors go to the Problems window with links to the code; test results show in a tree and as gutter icons next to each test.
+Run configurations are created from the solution: one per executable project and launch profile, plus the tests of each test project. Build errors go to the Problems window with links to the code; test results show in a tree and as gutter icons next to each test. Repositories whose `global.json` sets `"test": { "runner": "Microsoft.Testing.Platform" }` (xUnit v3, MSTest or NUnit on .NET 10+) run with the platform's options and TRX report; debugging a single test is not available in that mode yet.
+
+In the explorer, the solution's context menu builds, rebuilds, cleans and restores it and runs all its tests; a project's menu does the same for the project, adds Run and Debug for web, worker and console projects, and Run Tests for test projects.
 
 The debugger uses [netcoredbg](https://github.com/Samsung/netcoredbg) (MIT), downloaded on first use. It supports line and conditional breakpoints, step over/into/out, Run to Cursor, threads and frames, a lazily expanded variables tree, watches, Evaluate Expression, values on hover and stopping on exceptions.
 

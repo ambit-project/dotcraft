@@ -1768,5 +1768,14 @@
     "New profile": "新しいプロファイル",
     "Profile name": "プロファイル名",
     "Use NAME=value for each environment variable": "各環境変数には NAME=value の形式を使用してください"
+  },
+  "explorer-build": {
+    "Build Project": "プロジェクトをビルド",
+    "Rebuild Project": "プロジェクトをリビルド",
+    "Clean Project": "プロジェクトをクリーン",
+    "This project has no run configuration": "このプロジェクトには実行構成がありません"
+  },
+  "testing-platform": {
+    "Debugging tests is not available yet when global.json runs tests with Microsoft.Testing.Platform; run them instead": "global.json が Microsoft.Testing.Platform でテストを実行する場合、テストのデバッグはまだ使用できません。代わりに実行してください"
   }
 }

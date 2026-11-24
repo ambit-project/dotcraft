@@ -1768,5 +1768,14 @@
     "New profile": "Nouveau profil",
     "Profile name": "Nom du profil",
     "Use NAME=value for each environment variable": "Utilisez NOM=valeur pour chaque variable d’environnement"
+  },
+  "explorer-build": {
+    "Build Project": "Générer le projet",
+    "Rebuild Project": "Régénérer le projet",
+    "Clean Project": "Nettoyer le projet",
+    "This project has no run configuration": "Ce projet n'a pas de configuration d'exécution"
+  },
+  "testing-platform": {
+    "Debugging tests is not available yet when global.json runs tests with Microsoft.Testing.Platform; run them instead": "Le débogage des tests n'est pas encore disponible lorsque global.json exécute les tests avec Microsoft.Testing.Platform ; exécutez-les plutôt"
   }
 }

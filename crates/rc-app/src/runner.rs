@@ -686,6 +686,9 @@ impl Runner {
     }
 
     pub fn debug_test(&mut self, target: &Path, filter: TestFilter) -> Vec<RunnerOutput> {
+        if rc_dotnet::test::uses_testing_platform(target) {
+            return vec![RunnerOutput::Notify(tr("Debugging tests is not available yet when global.json runs tests with Microsoft.Testing.Platform; run them instead").into(), false)];
+        }
         self.start_tests(target, Some(filter), true)
     }
 

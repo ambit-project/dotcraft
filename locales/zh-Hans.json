@@ -1768,5 +1768,14 @@
     "New profile": "新建配置文件",
     "Profile name": "配置文件名称",
     "Use NAME=value for each environment variable": "每个环境变量请使用 NAME=value 格式"
+  },
+  "explorer-build": {
+    "Build Project": "生成项目",
+    "Rebuild Project": "重新生成项目",
+    "Clean Project": "清理项目",
+    "This project has no run configuration": "此项目没有运行配置"
+  },
+  "testing-platform": {
+    "Debugging tests is not available yet when global.json runs tests with Microsoft.Testing.Platform; run them instead": "当 global.json 使用 Microsoft.Testing.Platform 运行测试时，暂不支持调试测试；请改为运行测试"
   }
 }
