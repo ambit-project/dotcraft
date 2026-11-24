@@ -334,7 +334,11 @@ fn show_hover(ui: &Ui, h: &crate::popup::Hover, scheme: &Scheme, pal: &Palette, 
             }
         });
     });
-    let hovered = resp.response.hovered() || resp.response.contains_pointer();
+    // On its way from the word to the popup the pointer crosses other text (the popup opens a
+    // line below): anywhere between the two keeps it open, so its buttons can be reached.
+    let corridor = resp.response.rect.union(Rect::from_center_size(h.screen, vec2(m.row_h, m.row_h))).expand(4.0);
+    let in_corridor = ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| corridor.contains(p));
+    let hovered = resp.response.hovered() || resp.response.contains_pointer() || in_corridor;
     ui.ctx().data_mut(|d| d.insert_temp(Id::new("dotcraft_hover_popup_hovered"), hovered));
     clicked
 }

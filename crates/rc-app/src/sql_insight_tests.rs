@@ -190,3 +190,68 @@ fn screens_sql() {
     h.run_steps(3);
     h.render().unwrap().save(out.join("sql-dark.png")).unwrap();
 }
+
+/// Moves the pointer to `to` in steps, running a frame after each.
+fn move_pointer(h: &mut Harness<'static, DotCraftApp>, from: egui::Pos2, to: egui::Pos2, steps: usize) {
+    for k in 1..=steps {
+        h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / steps as f32)));
+        h.run_steps(1);
+    }
+}
+
+/// Screen point on the char after the caret (the caret is put at `needle`'s start).
+fn point_on(h: &mut Harness<'static, DotCraftApp>, needle: &str) -> egui::Pos2 {
+    caret_at(h, needle, false);
+    h.run_steps(2);
+    h.state().caret_screen.expect("caret on screen") + egui::vec2(6.0, -8.0)
+}
+
+#[test]
+fn the_context_menu_goes_to_the_declaration() {
+    use egui_kittest::kittest::Queryable;
+    let _lock = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let (_tmp, root) = workspace();
+    let mut h = open(&root, home.path());
+    let at = point_on(&mut h, "customers (id)");
+    h.event(egui::Event::PointerMoved(at));
+    h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed: true, modifiers: Default::default() });
+    h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed: false, modifiers: Default::default() });
+    h.run_steps(3);
+    assert!(h.query_by_label(rc_kit::i18n::tr("Find Usages")).is_some(), "the menu has Find Usages");
+    // The menu's entry (the hover may have opened under the pointer too, with its own button).
+    let column = h.get_by_label(rc_kit::i18n::tr("Find Usages")).rect().left();
+    let entry = h.query_all_by_label(rc_kit::i18n::tr("Go to Declaration")).find(|n| (n.rect().left() - column).abs() < 1.0).expect("the menu's Go to Declaration");
+    entry.click();
+    h.run_steps(4);
+    let doc = h.state().docs.active_doc().unwrap();
+    assert_eq!(doc.path, root.join("db/changelog/01-crm.sql"));
+    assert_eq!(doc.editor.caret_line_col().0, 4);
+}
+
+#[test]
+fn the_hover_stays_open_on_the_way_to_its_button() {
+    use egui_kittest::kittest::Queryable;
+    let _lock = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let (_tmp, root) = workspace();
+    let mut h = open(&root, home.path());
+    // Rest on the table's name in the PL/pgSQL body until the hover opens.
+    let at = point_on(&mut h, "customers where id");
+    h.event(egui::Event::PointerMoved(at));
+    for _ in 0..90 {
+        h.run_steps(1);
+        if h.state().docs.active_doc().unwrap().editor.popups.hover.is_some() {
+            break;
+        }
+    }
+    assert!(h.state().docs.active_doc().unwrap().editor.popups.hover.is_some(), "the hover opened");
+    h.run_steps(2);
+    // Down to its button, over the next line's text.
+    let button = h.get_by_label(rc_kit::i18n::tr("Go to Declaration")).rect().center();
+    move_pointer(&mut h, at, button, 12);
+    assert!(h.state().docs.active_doc().unwrap().editor.popups.hover.is_some(), "still open over the button");
+    h.get_by_label(rc_kit::i18n::tr("Go to Declaration")).click();
+    h.run_steps(4);
+    assert_eq!(h.state().docs.active_doc().unwrap().path, root.join("db/changelog/01-crm.sql"));
+}

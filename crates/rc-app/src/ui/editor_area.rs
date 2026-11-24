@@ -503,7 +503,8 @@ fn editor_context_menu(app: &mut DotCraftApp, resp: &egui::Response) {
     let csharp = app.docs.active_doc().is_some_and(crate::insight::is_csharp);
     // A typo at the caret: its fixes come first, like Rider's.
     let typo_fixes = crate::spellcheck::fixes_at_caret(app).map(|(fixes, _)| fixes).unwrap_or_default();
-    let proto = app.docs.active_doc().is_some_and(|d| d.editor.syntax.lang == rc_syntax::Lang::Proto);
+    // .proto and PostgreSQL files navigate with DotCraft's own index (no language server).
+    let proto = app.docs.active_doc().is_some_and(|d| matches!(d.editor.syntax.lang, rc_syntax::Lang::Proto | rc_syntax::Lang::Sql));
     let shortcut = |app: &DotCraftApp, a: Action| app.keymap.shortcut_text(a);
     let mut actions = Vec::new();
     let mut edit = None;
