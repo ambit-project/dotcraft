@@ -828,6 +828,42 @@ fn solution_filter_open_route_uses_source_root_and_watches_both_locations() {
 }
 
 #[test]
+#[ignore = "Requires a GPU; writes target/snapshots/explorer-{solution,files}-tab-dark.png"]
+fn screens_explorer_files_tab() {
+    let _home = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let out = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/snapshots");
+    std::fs::create_dir_all(&out).unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    // A repository whose solution lies one folder down, next to docs and scripts.
+    let repo = dir.path().canonicalize().unwrap().join("ShopRepo");
+    std::fs::create_dir_all(repo.join("docs")).unwrap();
+    std::fs::create_dir_all(repo.join("scripts")).unwrap();
+    let copy = std::process::Command::new("cp").args(["-R", fixtures().join("Shop").to_str().unwrap(), repo.join("Shop").to_str().unwrap()]).status().unwrap();
+    assert!(copy.success());
+    std::fs::write(repo.join("README.md"), "# Shop\n\nA sample shop.\n").unwrap();
+    std::fs::write(repo.join("docs/architecture.md"), "# Architecture\n").unwrap();
+    std::fs::write(repo.join("scripts/build.sh"), "#!/bin/sh\ndotnet build Shop/Shop.sln\n").unwrap();
+    assert!(std::process::Command::new("git").args(["init", "-q", "-b", "main"]).current_dir(&repo).status().unwrap().success());
+    let mut app = test_app(home.path(), true);
+    app.settings.roslyn_path = Some("/nonexistent".into());
+    app.open_workspace(&repo.join("Shop/Shop.sln"));
+    let mut h = harness(app, vec2(1280.0, 800.0));
+    run_frames(&mut h, "repository", |a| a.vcs.repo.is_some());
+    h.render().unwrap().save(out.join("explorer-solution-tab-dark.png")).unwrap();
+    h.get_by_label(rc_kit::i18n::tr("Files")).click();
+    h.run_steps(2);
+    assert_eq!(h.state().explorer.view, crate::ui::explorer::ExplorerView::Files);
+    h.state_mut().explorer.expanded.insert(format!("fdir:{}", repo.join("docs").display()));
+    h.run_steps(3);
+    h.get_by_label("architecture.md");
+    h.get_by_label("README.md").hover();
+    h.run_steps(2);
+    h.render().unwrap().save(out.join("explorer-files-tab-dark.png")).unwrap();
+    assert_eq!(h.state().session().explorer_view, rc_core::session::ExplorerView::Files);
+}
+
+#[test]
 #[ignore = "Requires a GPU; writes target/snapshots/show-all-files-dark.png"]
 fn screens_show_all_files() {
     let _home = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());

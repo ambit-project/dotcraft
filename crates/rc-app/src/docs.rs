@@ -239,7 +239,7 @@ impl Docs {
         if path.components().any(|c| c.as_os_str() == "MetadataAsSource") || crate::assembly_explorer::is_decompiled(&path) {
             editor.read_only = true;
         }
-        let md_view = path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown")).then_some(MdView::Split);
+        let md_view = crate::ui::explorer::is_markdown(&path).then_some(MdView::Split);
         if let Some(marks) = self.bookmarks.remove(&path) {
             let lines = editor.buffer.len_lines();
             editor.bookmarks = marks.into_iter().filter(|(l, _)| *l < lines).collect();

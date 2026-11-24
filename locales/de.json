@@ -1787,5 +1787,9 @@
   },
   "testing-platform": {
     "Debugging tests is not available yet when global.json runs tests with Microsoft.Testing.Platform; run them instead": "Das Debuggen von Tests ist noch nicht verfügbar, wenn global.json Tests mit Microsoft.Testing.Platform ausführt; führen Sie sie stattdessen aus"
+  },
+  "explorer-files": {
+    "Solution": "Projektmappe",
+    "Open Preview": "Vorschau öffnen"
   }
 }

@@ -7,7 +7,7 @@ use crate::runner::{ConfigKind, RunConfig, Runner};
 use crate::native_menu::{MenuCommand, NativeMenu};
 use crate::toolwindow::{Dock, ToolWindow};
 use crate::ui::dialogs::Dialog;
-use crate::ui::explorer::{ExplorerAction, ExplorerState};
+use crate::ui::explorer::{ExplorerAction, ExplorerState, ExplorerView};
 use egui::{Context, Ui};
 use rc_core::session::{OpenFile, Session};
 use rc_core::settings::{KeymapChoice, ThemeChoice};
@@ -187,6 +187,10 @@ pub struct DotCraftApp {
     _watcher: Option<FileWatcher>,
     /// A filter outside the underlying solution root still needs change notifications.
     _filter_watcher: Option<FileWatcher>,
+    /// The explorer's Files tab when the repository root lies above the workspace: changes
+    /// there only refresh the explorer. Watched while that tab is open.
+    files_inbox: Inbox<FsEvent>,
+    files_watcher: Option<(PathBuf, FileWatcher)>,
     /// Open documents outside the workspace: their folders are watched too.
     doc_inbox: Inbox<FsEvent>,
     doc_watcher: Option<FileWatcher>,
@@ -315,11 +319,13 @@ impl DotCraftApp {
             native_menu,
             fs_inbox: Inbox::new(waker.clone()),
             doc_inbox: Inbox::new(waker.clone()),
+            files_inbox: Inbox::new(waker.clone()),
             doc_watcher: None,
             doc_watch_dirs: Vec::new(),
             waker,
             _watcher: None,
             _filter_watcher: None,
+            files_watcher: None,
             pending: Vec::new(),
             focus_editor: false,
             nav_back: Vec::new(),
@@ -730,6 +736,7 @@ impl DotCraftApp {
         self.endpoints = crate::web::Endpoints::new();
         self._watcher = None;
         self._filter_watcher = None;
+        self.files_watcher = None;
         self.insight.stop();
         self.user_secrets.cancel();
         self.docker_runs.clear();
@@ -772,6 +779,7 @@ impl DotCraftApp {
         self.dock = Dock::from_session(if s.tool_windows.is_empty() { &self.settings.tool_windows } else { &s.tool_windows });
         self.explorer.expanded = s.expanded.iter().cloned().collect();
         self.explorer.set_show_all(s.show_all_files);
+        self.explorer.set_view(s.explorer_view);
         if self.explorer.expanded.is_empty() {
             // First open: the solution and its top folders expanded, like Rider.
             self.explorer.expanded.insert("sln".into());
@@ -852,6 +860,7 @@ impl DotCraftApp {
                 v
             },
             show_all_files: self.explorer.show_all,
+            explorer_view: self.explorer.view,
             bookmarks: {
                 let mut m: std::collections::BTreeMap<std::path::PathBuf, Vec<(usize, Option<char>)>> = Default::default();
                 for b in self.docs.all_bookmarks() {
@@ -1313,6 +1322,16 @@ impl DotCraftApp {
                 self.remember_file(i);
             }
             Err(e) => self.notify(e, true),
+        }
+    }
+
+    /// Opens a Markdown file showing only its preview (or switches its open tab to it).
+    pub fn open_markdown_preview(&mut self, path: &Path) {
+        self.open_file(path);
+        if let Some(i) = self.docs.index_of(path) {
+            self.docs.active = Some(i);
+            self.docs.list[i].md_view = Some(crate::docs::MdView::Preview);
+            self.focus_editor = false;
         }
     }
 
@@ -2040,9 +2059,11 @@ impl DotCraftApp {
                     }
                 }
                 ExplorerAction::Collapse => {
-                    self.explorer.expanded.retain(|k| k == "sln");
+                    self.explorer.collapse_all();
                     self.session_dirty = true;
                 }
+                ExplorerAction::SetView(view) => self.explorer.set_view(view),
+                ExplorerAction::OpenPreview(p) => self.open_markdown_preview(&p),
                 ExplorerAction::LocateActive => self.locate_active(),
                 ExplorerAction::ToggleShowAll => self.explorer.set_show_all(!self.explorer.show_all),
                 ExplorerAction::NewItem(dir, kind) => self.dialog = Some(Dialog::NewFile { dir, name: String::new(), kind, error: None }),
@@ -2109,6 +2130,20 @@ impl DotCraftApp {
 
     // ------------------------------------------------------------------ frame
 
+    /// Gives the explorer's Files tab the repository root and, while that tab is open and the
+    /// root lies above the workspace (which the workspace watcher covers), watches it too.
+    fn sync_files_root(&mut self) {
+        let repo_root = self.workspace.as_ref().and(self.vcs.repo.as_ref()).map(|r| r.root().to_path_buf());
+        self.explorer.set_files_root(repo_root.clone());
+        let watch = repo_root.filter(|r| self.explorer.view == ExplorerView::Files && self.workspace.as_ref().is_some_and(|w| w.ws.root != *r && w.ws.root.starts_with(r)));
+        if self.files_watcher.as_ref().map(|(root, _)| root) != watch.as_ref() {
+            self.files_watcher = watch.and_then(|root| FileWatcher::new(&root, self.files_inbox.sender()).ok().map(|w| (root, w)));
+        }
+        for event in self.files_inbox.drain() {
+            self.explorer.invalidate(event.path());
+        }
+    }
+
     fn poll_background(&mut self) {
         for result in self.user_secrets.drain() {
             match result {
@@ -2116,6 +2151,7 @@ impl DotCraftApp {
                 Err(error) => self.notify(trf("Could not open user secrets: {error}", &[("error", &error)]), true),
             }
         }
+        self.sync_files_root();
         let mut changed: Vec<PathBuf> = Vec::new();
         let events = self.fs_inbox.drain();
         self.report_fs_to_server(&events);

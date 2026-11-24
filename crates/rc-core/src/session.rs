@@ -7,6 +7,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// The explorer's tab: the solution's projects, or every file of the repository.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExplorerView {
+    #[default]
+    Solution,
+    Files,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OpenFile {
@@ -111,6 +119,8 @@ pub struct Session {
     pub expanded: Vec<String>,
     /// Explorer › Show All Files (bin, obj and files outside the projects).
     pub show_all_files: bool,
+    /// Explorer tab: Solution or Files.
+    pub explorer_view: ExplorerView,
     /// Bookmarks: file → (0-based line, mnemonic).
     pub bookmarks: BTreeMap<PathBuf, Vec<(usize, Option<char>)>>,
     pub run_configuration: Option<String>,
@@ -191,6 +201,7 @@ mod tests {
             session_target: Some(ws.join("MySolution.csproj")),
             session_filter: Some("FullyQualifiedName~Example".into()),
         };
+        s.explorer_view = ExplorerView::Files;
         s.save(&ws).unwrap();
         assert_eq!(Session::load(&ws), s);
 
@@ -203,5 +214,14 @@ mod tests {
         assert_ne!(Session::file_for(&ws), Session::file_for(&other));
         assert_eq!(Session::load(&other), other_session);
         assert_eq!(Session::load(&ws), s);
+    }
+
+    #[test]
+    fn sessions_without_an_explorer_view_open_the_solution_tab() {
+        let old: Session = serde_json::from_str(r#"{"expanded":["sln"],"show_all_files":true}"#).unwrap();
+        assert_eq!(old.explorer_view, ExplorerView::Solution);
+        assert!(old.show_all_files);
+        let files: Session = serde_json::from_str(r#"{"explorer_view":"Files"}"#).unwrap();
+        assert_eq!(files.explorer_view, ExplorerView::Files);
     }
 }

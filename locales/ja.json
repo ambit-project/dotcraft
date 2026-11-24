@@ -1787,5 +1787,9 @@
   },
   "testing-platform": {
     "Debugging tests is not available yet when global.json runs tests with Microsoft.Testing.Platform; run them instead": "global.json が Microsoft.Testing.Platform でテストを実行する場合、テストのデバッグはまだ使用できません。代わりに実行してください"
+  },
+  "explorer-files": {
+    "Solution": "ソリューション",
+    "Open Preview": "プレビューを開く"
   }
 }

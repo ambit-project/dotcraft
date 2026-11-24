@@ -67,6 +67,8 @@ Run configurations are created from the solution: one per executable project and
 
 In the explorer, the solution's context menu builds, rebuilds, cleans and restores it and runs all its tests; a project's menu does the same for the project, adds Run and Debug for web, worker and console projects, and Run Tests for test projects.
 
+The explorer has two tabs. **Solution** shows the solution's projects; **Files** shows every folder and file of the git repository from its root, also when the solution lies in a subfolder (the workspace folder outside git), without `.git`, `bin` and `obj`. Projects and solutions are plain files there. A Markdown file's context menu has **Open Preview**, which opens it showing only the preview. The tab you pick is kept per workspace.
+
 The debugger uses [netcoredbg](https://github.com/Samsung/netcoredbg) (MIT), downloaded on first use. It supports line and conditional breakpoints, step over/into/out, Run to Cursor, threads and frames, a lazily expanded variables tree, watches, Evaluate Expression, values on hover and stopping on exceptions.
 
 <table>

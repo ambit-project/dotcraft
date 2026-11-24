@@ -1787,5 +1787,9 @@
   },
   "testing-platform": {
     "Debugging tests is not available yet when global.json runs tests with Microsoft.Testing.Platform; run them instead": "当 global.json 使用 Microsoft.Testing.Platform 运行测试时，暂不支持调试测试；请改为运行测试"
+  },
+  "explorer-files": {
+    "Solution": "解决方案",
+    "Open Preview": "打开预览"
   }
 }

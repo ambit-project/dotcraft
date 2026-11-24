@@ -1,8 +1,10 @@
 //! Solution Explorer: solution → solution folders → projects → Dependencies and the project's
-//! folders and files (read lazily from disk). Keyboard navigation like Rider: ↑/↓ move,
-//! →/← expand/collapse, Enter or double-click opens, F2 renames, ⌫ deletes.
+//! folders and files (read lazily from disk). The Files tab shows every file of the git
+//! repository instead (or of the workspace folder outside git). Keyboard navigation like Rider:
+//! ↑/↓ move, →/← expand/collapse, Enter or double-click opens, F2 renames, ⌫ deletes.
 
-use rc_core::workspace::{FileNode, list_dir_with};
+pub use rc_core::session::ExplorerView;
+use rc_core::workspace::{FileNode, list_dir, list_dir_with};
 use rc_dotnet::{ProjectInfo, Solution, SolutionItem};
 use rc_kit::i18n::tr;
 use rc_kit::{Ico, ico, icons, theme};
@@ -18,6 +20,8 @@ const INDENT: f32 = 18.0;
 pub enum NodeKind {
     Solution,
     Scratches,
+    /// The Files tab's root: the repository's work tree (or the workspace folder).
+    FilesRoot(PathBuf),
     SolutionFolder { name: String, children: Vec<SolutionItem> },
     Project(PathBuf),
     Dependencies(PathBuf),
@@ -60,6 +64,12 @@ pub struct ExplorerState {
     dimmed: HashSet<String>,
     /// Override used by isolated explorer tests; production uses the shared data directory.
     scratch_dir: Option<PathBuf>,
+    /// Solution or Files tab (kept in the session).
+    pub view: ExplorerView,
+    /// The git work tree containing the workspace: the Files tab's root once discovered.
+    files_root: Option<PathBuf>,
+    /// Folder listings of the Files tab: never bin, obj or .git, whatever Show All Files says.
+    files_cache: HashMap<PathBuf, Vec<FileNode>>,
 }
 
 /// What the user asked for in the explorer this frame.
@@ -101,6 +111,15 @@ pub enum ExplorerAction {
     LocateActive,
     /// Show All Files on/off (kept in the session).
     ToggleShowAll,
+    /// Switch to the Solution or the Files tab.
+    SetView(ExplorerView),
+    /// Open a Markdown file showing only its preview.
+    OpenPreview(PathBuf),
+}
+
+/// `.md` and `.markdown` files, which the editor can show as a preview.
+pub fn is_markdown(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))
 }
 
 impl ExplorerState {
@@ -113,6 +132,10 @@ impl ExplorerState {
             self.dir_cache.remove(parent);
         }
         self.dir_cache.remove(path);
+        if let Some(parent) = path.parent() {
+            self.files_cache.remove(parent);
+        }
+        self.files_cache.remove(path);
         if path.extension().is_some_and(|e| e == "csproj") {
             self.projects.remove(path);
         }
@@ -127,6 +150,36 @@ impl ExplorerState {
         if self.show_all != on {
             self.show_all = on;
             self.dir_cache.clear();
+        }
+    }
+
+    /// The git work tree around the workspace (None outside git); the Files tab starts there.
+    pub fn set_files_root(&mut self, root: Option<PathBuf>) {
+        if self.files_root != root {
+            self.files_root = root;
+            self.files_cache.clear();
+        }
+    }
+
+
+    /// The Files tab's root for workspace `root`: the repository when it contains the workspace.
+    fn files_top(&self, root: &Path) -> PathBuf {
+        self.files_root.as_ref().filter(|r| root.starts_with(r)).cloned().unwrap_or_else(|| root.to_path_buf())
+    }
+
+    pub fn set_view(&mut self, view: ExplorerView) {
+        self.view = view;
+        // The first visit shows the repository's top level.
+        if view == ExplorerView::Files && !self.expanded.iter().any(|k| k == "files" || k.starts_with("fdir:")) {
+            self.expanded.insert("files".into());
+        }
+    }
+
+    /// Collapse All: folds the current tab only.
+    pub fn collapse_all(&mut self) {
+        match self.view {
+            ExplorerView::Solution => self.expanded.retain(|k| k == "sln" || k == "files" || k.starts_with("fdir:")),
+            ExplorerView::Files => self.expanded.retain(|k| !k.starts_with("fdir:")),
         }
     }
 
@@ -146,6 +199,25 @@ impl ExplorerState {
     /// opened file").
     pub fn locate(&mut self, path: &Path, solution: Option<&Solution>, root: &Path) {
         let scratches = self.scratches_dir();
+        if self.view == ExplorerView::Files {
+            let top = self.files_top(root);
+            if path.starts_with(&top) && !path.starts_with(&scratches) {
+                let mut keys = vec!["files".to_string()];
+                let mut dirs = Vec::new();
+                let mut parent = path.parent();
+                while let Some(dir) = parent.filter(|dir| *dir != top && dir.starts_with(&top)) {
+                    dirs.push(format!("fdir:{}", dir.display()));
+                    parent = dir.parent();
+                }
+                keys.extend(dirs.into_iter().rev());
+                self.expanded.extend(keys);
+                self.selected = Some(format!("file:{}", path.display()));
+                self.reveal = true;
+                return;
+            }
+            // Scratches and files outside the repository are only in the Solution tab.
+            self.view = ExplorerView::Solution;
+        }
         if path.starts_with(&scratches) {
             let mut keys = vec!["scratches".to_string()];
             let mut dirs = Vec::new();
@@ -218,6 +290,10 @@ impl ExplorerState {
     pub fn rows(&mut self, solution: Option<&Solution>, root: &Path, root_name: &str) -> Vec<Row> {
         let mut rows = Vec::new();
         self.dimmed.clear();
+        if self.view == ExplorerView::Files {
+            self.push_files_root(&mut rows, root);
+            return rows;
+        }
         let root_row = Row {
             key: "sln".into(),
             kind: NodeKind::Solution,
@@ -256,6 +332,38 @@ impl ExplorerState {
             self.push_dir(&mut rows, &self.scratches_dir(), 1, false);
         }
         rows
+    }
+
+    /// The Files tab: the repository's folders and files, read lazily like a project's.
+    fn push_files_root(&mut self, rows: &mut Vec<Row>, root: &Path) {
+        let top = self.files_top(root);
+        rows.push(Row {
+            key: "files".into(),
+            kind: NodeKind::FilesRoot(top.clone()),
+            depth: 0,
+            label: top.file_name().map_or_else(|| top.display().to_string(), |n| n.to_string_lossy().into_owned()),
+            secondary: String::new(),
+            icon: ico::FOLDER,
+            expandable: true,
+        });
+        if self.expanded.contains("files") {
+            self.push_files_dir(rows, &top, 1);
+        }
+    }
+
+    fn push_files_dir(&mut self, rows: &mut Vec<Row>, dir: &Path, depth: usize) {
+        let children = self.files_cache.entry(dir.to_path_buf()).or_insert_with(|| list_dir(dir)).clone();
+        for node in children {
+            if node.is_dir {
+                let key = format!("fdir:{}", node.path.display());
+                rows.push(Row { key: key.clone(), kind: NodeKind::Dir(node.path.clone()), depth, label: node.name.clone(), secondary: String::new(), icon: ico::FOLDER, expandable: true });
+                if self.expanded.contains(&key) {
+                    self.push_files_dir(rows, &node.path, depth + 1);
+                }
+            } else {
+                rows.push(file_row(&node.path, depth));
+            }
+        }
     }
 
     /// Show All Files: what the solution folder holds besides the solution and its projects
@@ -477,6 +585,18 @@ pub fn show(ui: &mut Ui, state: &mut ExplorerState, solution: Option<&Solution>,
             }
         }
     }
+
+    // Solution / Files tabs (Rider's Solution and File System views).
+    ui.horizontal(|ui| {
+        ui.add_space(8.0);
+        ui.spacing_mut().item_spacing.x = 4.0;
+        for (view, icon, label) in [(ExplorerView::Solution, if solution.is_some() { ico::SOLUTION } else { ico::FOLDER }, tr("Solution")), (ExplorerView::Files, ico::FOLDER, tr("Files"))] {
+            if theme::tab(ui, state.view == view, Some(icon), label, false).0.clicked() && state.view != view {
+                actions.push(ExplorerAction::SetView(view));
+            }
+        }
+    });
+    ui.add_space(4.0);
 
     let rows = state.rows(solution, root, root_name);
     let selected_index = state.selected.as_ref().and_then(|k| rows.iter().position(|r| &r.key == k));
@@ -795,7 +915,7 @@ fn context_menu(ui: &mut Ui, row: &Row, solution: Option<&Path>, project: Projec
     }
     let (path, is_dir) = match &row.kind {
         NodeKind::File(p) => (p.clone(), false),
-        NodeKind::Dir(p) => (p.clone(), true),
+        NodeKind::Dir(p) | NodeKind::FilesRoot(p) => (p.clone(), true),
         NodeKind::Project(p) => (p.clone(), false),
         NodeKind::Packages(_) | NodeKind::Dependencies(_) => return,
         _ => {
@@ -813,6 +933,13 @@ fn context_menu(ui: &mut Ui, row: &Row, solution: Option<&Path>, project: Projec
         actions.push(ExplorerAction::Open(p.clone()));
         ui.close();
     }
+    if let NodeKind::File(p) = &row.kind
+        && is_markdown(p)
+        && theme::menu_item(ui, Some(ico::PREVIEW), tr("Open Preview"), false).clicked()
+    {
+        actions.push(ExplorerAction::OpenPreview(p.clone()));
+        ui.close();
+    }
     // Add › (Rider): types, controllers, Razor, tests, files and folders.
     ui.menu_button(tr("Add"), |ui| {
         let id = ui.id().with("new_item_filter");
@@ -821,13 +948,16 @@ fn context_menu(ui: &mut Ui, row: &Row, solution: Option<&Path>, project: Projec
         ui.ctx().data_mut(|data| data.insert_temp(id, filter));
     });
     ui.separator();
-    if theme::menu_item(ui, Some(ico::EDIT), tr("Rename…"), false).clicked() {
-        actions.push(ExplorerAction::Rename(path.clone()));
-        ui.close();
-    }
-    if theme::menu_item(ui, Some(ico::DELETE), tr("Delete…"), false).clicked() {
-        actions.push(ExplorerAction::Delete(path.clone()));
-        ui.close();
+    // The Files tab's root is the repository itself: no rename or delete from here.
+    if !matches!(&row.kind, NodeKind::FilesRoot(_)) {
+        if theme::menu_item(ui, Some(ico::EDIT), tr("Rename…"), false).clicked() {
+            actions.push(ExplorerAction::Rename(path.clone()));
+            ui.close();
+        }
+        if theme::menu_item(ui, Some(ico::DELETE), tr("Delete…"), false).clicked() {
+            actions.push(ExplorerAction::Delete(path.clone()));
+            ui.close();
+        }
     }
     ui.separator();
     if theme::menu_item(ui, Some(ico::COPY), tr("Copy Path"), false).clicked() {
@@ -985,6 +1115,158 @@ mod tests {
         assert!(!state.is_dimmed(&format!("dir:{}", root.join("Assets/Library").display())));
         assert!(!state.is_dimmed(&format!("dir:{}", root.join("Assets").display())));
     }
+
+    /// A repository whose solution lies in `src/`, with files that belong to no project.
+    fn repository() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let dir = tempfile::Builder::new().prefix("dotcraft-files-tab").tempdir().unwrap();
+        let repo = dunce::canonicalize(dir.path()).unwrap();
+        let src = repo.join("src");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(src.join("App/bin/Debug")).unwrap();
+        std::fs::create_dir_all(src.join("App/obj")).unwrap();
+        std::fs::create_dir_all(repo.join("scripts")).unwrap();
+        std::fs::create_dir_all(repo.join("docs/guide")).unwrap();
+        std::fs::write(src.join("App.sln"), "Microsoft Visual Studio Solution File, Format Version 12.00\nProject(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"App\", \"App\\App.csproj\", \"{790D8657-5CBB-446D-930E-78AA39237123}\"\nEndProject\n").unwrap();
+        std::fs::write(src.join("App/App.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>").unwrap();
+        std::fs::write(src.join("App/Program.cs"), "").unwrap();
+        std::fs::write(src.join("notes.txt"), "").unwrap();
+        std::fs::write(repo.join("README.md"), "").unwrap();
+        std::fs::write(repo.join("scripts/a.sh"), "").unwrap();
+        std::fs::write(repo.join("docs/guide/x.md"), "").unwrap();
+        (dir, repo, src)
+    }
+
+    #[test]
+    fn files_tab_lists_the_whole_repository_without_git_bin_and_obj() {
+        let (_dir, repo, src) = repository();
+        let solution = Solution::load(&src.join("App.sln")).unwrap();
+        let mut state = ExplorerState::default();
+        state.set_files_root(Some(repo.clone()));
+        state.expanded.insert("sln".into());
+        state.set_view(ExplorerView::Files);
+        let dirs = ["scripts", "src", "src/App", "src/App/bin", "src/App/obj"];
+        state.expanded.extend(dirs.iter().map(|d| format!("fdir:{}", repo.join(d).display())));
+        let rows = |s: &mut ExplorerState| s.rows(Some(&solution), &src, "App");
+
+        let files = rows(&mut state);
+        assert_eq!(files[0].kind, NodeKind::FilesRoot(repo.clone()), "the tab starts at the repository, not at src/");
+        let labels: Vec<_> = files.iter().map(|r| r.label.as_str()).collect();
+        for name in ["docs", "scripts", "a.sh", "src", "App", "App.csproj", "Program.cs", "App.sln", "notes.txt", "README.md"] {
+            assert!(labels.contains(&name), "{name} missing in {labels:?}");
+        }
+        assert!(!labels.iter().any(|l| ["bin", "obj", ".git", "Scratches"].contains(l)), "{labels:?}");
+        let csproj = files.iter().find(|r| r.label == "App.csproj").unwrap();
+        assert_eq!(csproj.kind, NodeKind::File(src.join("App/App.csproj")), "a project is a plain file here");
+        assert!(files.iter().all(|r| !state.is_dimmed(&r.key)));
+
+        state.set_show_all(true);
+        let all: Vec<_> = rows(&mut state).into_iter().map(|r| r.label).collect();
+        assert!(!all.iter().any(|l| l == "bin" || l == "obj" || l == ".git"), "Show All Files only applies to the Solution tab: {all:?}");
+
+        // The Solution tab is unchanged, with its expanded nodes kept apart from the Files tab's.
+        state.set_show_all(false);
+        state.set_view(ExplorerView::Solution);
+        let solution_rows: Vec<_> = rows(&mut state).into_iter().map(|r| r.label).collect();
+        assert_eq!(solution_rows, ["App", "App", "Scratches"]);
+    }
+
+    #[test]
+    fn files_tab_outside_git_starts_at_the_workspace() {
+        let (_dir, _repo, src) = repository();
+        let mut state = ExplorerState::default();
+        state.set_view(ExplorerView::Files);
+        let rows = state.rows(None, &src, "src");
+        assert_eq!(rows[0].kind, NodeKind::FilesRoot(src.clone()));
+        assert_eq!(rows[0].label, "src");
+        assert!(rows.iter().any(|r| r.label == "notes.txt") && !rows.iter().any(|r| r.label == "README.md"));
+    }
+
+    #[test]
+    fn locate_in_the_files_tab_expands_the_folders_of_a_file_outside_the_projects() {
+        let (_dir, repo, src) = repository();
+        let solution = Solution::load(&src.join("App.sln")).unwrap();
+        let mut state = ExplorerState { scratch_dir: Some(repo.join("scratches")), ..Default::default() };
+        state.set_files_root(Some(repo.clone()));
+        state.set_view(ExplorerView::Files);
+        state.expanded.remove("files");
+        let doc = repo.join("docs/guide/x.md");
+        state.locate(&doc, Some(&solution), &src);
+        assert_eq!(state.view, ExplorerView::Files);
+        let rows = state.rows(Some(&solution), &src, "App");
+        let row = rows.iter().find(|r| r.kind == NodeKind::File(doc.clone())).expect("located file is visible");
+        assert_eq!(row.depth, 3);
+        assert_eq!(state.selected, Some(row.key.clone()));
+
+        // A scratch file is only in the Solution tab.
+        let scratch = repo.join("scratches/a.http");
+        std::fs::create_dir_all(scratch.parent().unwrap()).unwrap();
+        std::fs::write(&scratch, "").unwrap();
+        state.locate(&scratch, Some(&solution), &src);
+        assert_eq!(state.view, ExplorerView::Solution);
+    }
+
+    #[test]
+    fn collapse_all_folds_only_the_current_tab() {
+        let mut state = ExplorerState::default();
+        state.expanded.extend(["sln", "sf:/src", "proj:/a.csproj", "files", "fdir:/r/docs"].map(String::from));
+        state.collapse_all();
+        let mut left: Vec<_> = state.expanded.iter().cloned().collect();
+        left.sort();
+        assert_eq!(left, ["fdir:/r/docs", "files", "sln"]);
+        state.expanded.extend(["sf:/src".to_string()]);
+        state.view = ExplorerView::Files;
+        state.collapse_all();
+        let mut left: Vec<_> = state.expanded.iter().cloned().collect();
+        left.sort();
+        assert_eq!(left, ["files", "sf:/src", "sln"]);
+    }
+
+    #[test]
+    fn files_tab_refreshes_after_changes_above_the_solution_folder() {
+        let _lock = crate::screens::HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        let (_dir, repo, src) = repository();
+        std::fs::remove_dir_all(repo.join(".git")).unwrap();
+        assert!(std::process::Command::new("git").args(["init", "-q"]).current_dir(&repo).status().unwrap().success());
+        let mut app = crate::screens::test_app(home.path(), true);
+        app.settings.roslyn_path = Some("/nonexistent".into());
+        app.open_workspace(&src.join("App.sln"));
+        app.explorer.set_view(ExplorerView::Files);
+        app.explorer.expanded.insert(format!("fdir:{}", repo.join("scripts").display()));
+        let mut h = crate::screens::harness(app, egui::vec2(1280.0, 800.0));
+        let has = |h: &mut egui_kittest::Harness<'static, crate::app::DotCraftApp>, name: &str| {
+            let app = h.state_mut();
+            let w = app.workspace.as_ref().unwrap();
+            let (solution, root) = (w.solution.clone(), w.ws.root.clone());
+            app.explorer.rows(solution.as_ref(), &root, "App").iter().any(|r| r.label == name)
+        };
+        let wait = |h: &mut egui_kittest::Harness<'static, crate::app::DotCraftApp>, name: &str| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !has(h, name) {
+                assert!(std::time::Instant::now() < deadline, "{name} never appeared in the Files tab");
+                h.run_steps(1);
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        };
+        wait(&mut h, "a.sh");
+        std::fs::write(repo.join("scripts/b.sh"), "").unwrap();
+        wait(&mut h, "b.sh");
+    }
+
+    #[test]
+    fn markdown_opens_as_a_preview_only() {
+        let _lock = crate::screens::HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        let readme = home.path().join("README.md");
+        std::fs::write(&readme, "# Title\n").unwrap();
+        let mut app = crate::screens::test_app(home.path(), true);
+        let ctx = egui::Context::default();
+        app.handle_explorer(&ctx, vec![ExplorerAction::Open(readme.clone())]);
+        assert_eq!(app.docs.active_doc().unwrap().md_view, Some(crate::docs::MdView::Split));
+        app.handle_explorer(&ctx, vec![ExplorerAction::OpenPreview(readme.clone())]);
+        assert_eq!(app.docs.list.len(), 1, "an open file switches to its preview");
+        assert_eq!(app.docs.active_doc().unwrap().md_view, Some(crate::docs::MdView::Preview));
+    }
 }
 
 #[cfg(test)]
@@ -1040,6 +1322,26 @@ mod project_menu_tests {
     fn menu(kind: NodeKind, project: ProjectMenu) -> Harness<'static, Vec<ExplorerAction>> {
         let row = Row { key: "row".into(), kind, depth: 0, label: "row".into(), secondary: String::new(), icon: ico::PROJECT, expandable: false };
         Harness::new_ui_state(move |ui, actions: &mut Vec<ExplorerAction>| context_menu(ui, &row, Some(Path::new("/src/App.slnx")), project, actions), Vec::new())
+    }
+
+    #[test]
+    fn files_in_the_files_tab_have_the_file_menu_and_markdown_opens_a_preview() {
+        let mut h = menu(NodeKind::File(PathBuf::from("/src/App/App.csproj")), ProjectMenu::default());
+        h.run();
+        h.get_by_label(tr("Rename…"));
+        assert!(h.query_by_label(tr("Build Project")).is_none() && h.query_by_label(tr("Run Tests")).is_none() && h.query_by_label(tr("Open Preview")).is_none());
+
+        let readme = PathBuf::from("/repo/docs/README.md");
+        let mut h = menu(NodeKind::File(readme.clone()), ProjectMenu::default());
+        h.run();
+        h.get_by_label(tr("Open Preview")).click();
+        h.run();
+        assert_eq!(h.state(), &[ExplorerAction::OpenPreview(readme)]);
+
+        let mut h = menu(NodeKind::FilesRoot(PathBuf::from("/repo")), ProjectMenu::default());
+        h.run();
+        h.get_by_label(tr("Copy Path"));
+        assert!(h.query_by_label(tr("Rename…")).is_none() && h.query_by_label(tr("Delete…")).is_none());
     }
 
     #[test]
