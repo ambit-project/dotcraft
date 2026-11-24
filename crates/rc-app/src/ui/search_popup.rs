@@ -66,6 +66,16 @@ fn collect(app: &DotCraftApp, se: &SearchEverywhere) -> Vec<(Option<&'static str
                 }
             }
         }
+        // The workspace's PostgreSQL objects (the language server doesn't know them either).
+        if app.workspace.is_some() && !text.is_empty() {
+            let index = app.sql.index();
+            for (path, d) in index.objects() {
+                if rc_editor::popup::fuzzy_score(&d.key.name, text).is_some() {
+                    let (line, col) = index.line_col(path, d.name.start);
+                    symbols.push(crate::search::SymbolHit { name: d.key.name.clone(), container: d.key.schema.clone(), kind: crate::sql_insight::symbol_kind(d.kind), path: path.to_path_buf(), line, col });
+                }
+            }
+        }
         symbols.extend(se.symbols.iter().cloned());
         for s in &symbols {
             let is_type = s.is_type();

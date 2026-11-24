@@ -1791,5 +1791,23 @@
   "explorer-files": {
     "Solution": "解决方案",
     "Open Preview": "打开预览"
+  },
+  "sql": {
+    "Changeset {id}": "变更集 {id}",
+    "Declarations of {name}": "{name} 的声明",
+    "Usages of {name}": "{name} 的用法",
+    "on {table}": "在 {table} 上",
+    "…and {n} more": "…还有 {n} 个",
+    "No SQL objects": "没有 SQL 对象",
+    "Tables, views, functions and procedures this file creates appear here.": "此文件创建的表、视图、函数和过程显示在这里。",
+    "Schema": "架构",
+    "Table": "表",
+    "Materialized view": "物化视图",
+    "Function": "函数",
+    "Procedure": "过程",
+    "Domain": "域",
+    "Index": "索引",
+    "Trigger": "触发器",
+    "Extension": "扩展"
   }
 }

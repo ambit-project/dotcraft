@@ -1791,5 +1791,23 @@
   "explorer-files": {
     "Solution": "ソリューション",
     "Open Preview": "プレビューを開く"
+  },
+  "sql": {
+    "Changeset {id}": "チェンジセット {id}",
+    "Declarations of {name}": "{name} の宣言",
+    "Usages of {name}": "{name} の使用箇所",
+    "on {table}": "{table} 上",
+    "…and {n} more": "…ほか {n} 件",
+    "No SQL objects": "SQL オブジェクトはありません",
+    "Tables, views, functions and procedures this file creates appear here.": "このファイルが作成するテーブル、ビュー、関数、プロシージャがここに表示されます。",
+    "Schema": "スキーマ",
+    "Table": "テーブル",
+    "Materialized view": "マテリアライズドビュー",
+    "Function": "関数",
+    "Procedure": "プロシージャ",
+    "Domain": "ドメイン",
+    "Index": "インデックス",
+    "Trigger": "トリガー",
+    "Extension": "拡張機能"
   }
 }

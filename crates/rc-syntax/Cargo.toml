@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 rc-text.workspace = true
+rc-sql.workspace = true
 tree-sitter.workspace = true
 tree-sitter-c-sharp.workspace = true
 tree-sitter-xml.workspace = true

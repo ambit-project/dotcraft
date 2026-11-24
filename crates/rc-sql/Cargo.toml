@@ -1,0 +1,13 @@
+[package]
+name = "rc-sql"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# The PostgreSQL 18 parser (libpg_query 18.1, built from source with cc; bindgen needs libclang).
+pg_query = "=18.1.0"
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

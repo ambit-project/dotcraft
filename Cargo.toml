@@ -47,6 +47,7 @@ rc-dotnet = { path = "crates/rc-dotnet" }
 rc-vcs = { path = "crates/rc-vcs" }
 rc-search = { path = "crates/rc-search" }
 rc-term = { path = "crates/rc-term" }
+rc-sql = { path = "crates/rc-sql" }
 
 [profile.release]
 lto = "fat"

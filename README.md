@@ -107,6 +107,18 @@ Unity's cache folders at the project root (`Library`, `Temp`, `Logs`, `MemoryCap
 
 Play mode, building players and debugging are done in the Unity Editor: Unity runs scripts on Mono, which DotCraft's .NET debugger (netcoredbg) cannot attach to.
 
+### PostgreSQL files
+
+`.sql`, `.pgsql` and `.psql` files are read by PostgreSQL 18's own parser (libpg_query), with no database connection, the way [PG Studio](https://github.com/ambit-project/ambit-pg-studio) does it:
+
+- Highlighting from PostgreSQL's scanner, also inside `$$` function bodies; Liquibase `--changeset` headers stand out.
+- Syntax errors and PL/pgSQL errors are underlined at the word and listed in **Problems** while you type.
+- Hover a table, view, function, procedure or type: its signature, the file and changeset that create it, the changeset comment, and a table's columns after every `ALTER TABLE`.
+- **Go to Declaration** (⌘/Ctrl-click) and **Find Usages** work across every SQL file of the workspace. Names resolve like PostgreSQL resolves them: through `SET search_path` (also a function's own), overloads by the number of arguments, and names inside PL/pgSQL bodies and `EXECUTE format('…')`. A usage says what it does: read, write, call, type, foreign key, index or trigger.
+- **Structure** lists the objects a file creates, and Search Everywhere finds every object of the workspace.
+
+The workspace is indexed in the background when it opens (900 files take about a fifth of a second) and again for each SQL file that changes on disk; open files count as edited.
+
 ## Requirements
 
 - macOS 11 or later (Apple Silicon or Intel), Windows 10/11 (x64 or ARM64, DirectX 12), or Linux with glibc 2.35+ (x64 or ARM64; Vulkan or OpenGL ES, X11 or Wayland).
@@ -180,6 +192,7 @@ DotCraft is a Cargo workspace; each crate has one job:
 | `rc-dotnet` | dotnet CLI: solutions, projects, build, run, tests, NuGet |
 | `rc-vcs` | Git through the `git` CLI |
 | `rc-search` | File index, fuzzy search and Find in Files |
+| `rc-sql` | PostgreSQL files: PostgreSQL's parser (libpg_query), definitions, references, index |
 | `rc-term` | Terminal emulator (alacritty_terminal) |
 | `rc-core` | Settings, sessions, workspace, background work |
 

@@ -30,6 +30,7 @@ rc-kit.workspace = true
 rc-core.workspace = true
 rc-remote.workspace = true
 rc-dotnet.workspace = true
+rc-sql.workspace = true
 rc-lsp.workspace = true
 rc-term.workspace = true
 rc-search.workspace = true

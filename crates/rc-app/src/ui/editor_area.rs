@@ -325,6 +325,17 @@ pub fn editor_pane(app: &mut DotCraftApp, ui: &mut Ui, active: usize, rect: Rect
     if settings_file && out.accepted_completion.is_some() {
         app.appsettings.accepted(doc);
     }
+    // PostgreSQL: hover and ⌘+click across the workspace's SQL files.
+    let sql_outputs = if crate::sql_insight::is_sql(doc) && !app.debugger.stopped() {
+        let docs_text = {
+            let path = doc.path.clone();
+            let text = doc.editor.buffer.rope().to_string();
+            move |p: &std::path::Path| if p == path { Some(text.clone()) } else { std::fs::read_to_string(p).ok() }
+        };
+        app.sql.on_editor_events(doc, &docs_text, &out.events)
+    } else {
+        Vec::new()
+    };
     if let Some(data) = out.accepted_completion
         && !package_file
         && !settings_file
@@ -465,6 +476,7 @@ pub fn editor_pane(app: &mut DotCraftApp, ui: &mut Ui, active: usize, rect: Rect
     }
     app.handle_packages(package_outputs);
     app.handle_appsettings(settings_outputs);
+    app.handle_sql(sql_outputs);
     if let Some((path, pos)) = navigated_from {
         app.push_nav_at(path, pos);
     }

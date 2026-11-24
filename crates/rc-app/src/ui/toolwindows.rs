@@ -969,6 +969,36 @@ fn structure(app: &mut DotCraftApp, ui: &mut Ui) {
         }
         return;
     }
+    // PostgreSQL files: the objects the file creates (PostgreSQL's own parser, no server).
+    if crate::sql_insight::is_sql(doc) {
+        let analysis = app.sql.analysis(doc);
+        let defs = crate::sql_insight::structure(&analysis);
+        if defs.is_empty() {
+            empty_state(ui, ToolWindow::Structure.icon(), tr("No SQL objects"), tr("Tables, views, functions and procedures this file creates appear here."));
+            return;
+        }
+        let rope = doc.editor.buffer.rope().clone();
+        let caret_line = doc.editor.caret_line_col().0;
+        let mut goto = None;
+        egui::ScrollArea::vertical().id_salt("sql_structure").auto_shrink([false, false]).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for d in defs {
+                let at = d.name.start.min(rope.len_bytes());
+                let line = rope.byte_to_line(at);
+                let icon = crate::convert::symbol_icon(crate::sql_insight::symbol_kind(d.kind));
+                if list_row(ui, 0, icon, &d.key.qualified(), crate::sql_insight::kind_title(d.kind), line == caret_line).clicked() {
+                    goto = Some((line, rope.byte_to_char(at) - rope.line_to_char(line)));
+                }
+            }
+        });
+        if let Some((line, col)) = goto
+            && let Some(doc) = app.docs.active_doc_mut()
+        {
+            doc.editor.goto(line, col);
+            app.focus_editor = true;
+        }
+        return;
+    }
     let Some(tree) = app.insight.structure.get(&doc.editor.id).filter(|tree| !tree.is_empty()).cloned() else {
         let (title, hint) = empty_text(ToolWindow::Structure);
         empty_state(ui, ToolWindow::Structure.icon(), title, hint);

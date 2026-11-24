@@ -1791,5 +1791,23 @@
   "explorer-files": {
     "Solution": "Solução",
     "Open Preview": "Abrir visualização"
+  },
+  "sql": {
+    "Changeset {id}": "Changeset {id}",
+    "Declarations of {name}": "Declarações de {name}",
+    "Usages of {name}": "Usos de {name}",
+    "on {table}": "em {table}",
+    "…and {n} more": "…e mais {n}",
+    "No SQL objects": "Nenhum objeto SQL",
+    "Tables, views, functions and procedures this file creates appear here.": "As tabelas, views, funções e procedimentos que este arquivo cria aparecem aqui.",
+    "Schema": "Esquema",
+    "Table": "Tabela",
+    "Materialized view": "View materializada",
+    "Function": "Função",
+    "Procedure": "Procedimento",
+    "Domain": "Domínio",
+    "Index": "Índice",
+    "Trigger": "Gatilho",
+    "Extension": "Extensão"
   }
 }

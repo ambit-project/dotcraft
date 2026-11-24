@@ -289,8 +289,52 @@ pub fn highlight_lexical(lang: Lang, rope: &Rope, first: usize, count: usize) ->
             let mut in_block_comment = false;
             Some((0..last).map(|l| proto_line(&rope.line(l).to_string(), &mut in_block_comment)).skip(first).collect())
         }
+        Lang::Sql => Some(sql_lines(rope, first, last)),
         _ => None,
     }
+}
+
+/// PostgreSQL: the whole text is scanned (comments and `$$` bodies span lines), then the spans
+/// of lines `first..last` are cut per line in char columns.
+fn sql_lines(rope: &Rope, first: usize, last: usize) -> Vec<Vec<Span>> {
+    let mut lines = vec![Vec::new(); last.saturating_sub(first)];
+    if lines.is_empty() {
+        return lines;
+    }
+    let text = rope.to_string();
+    let (from, to) = (rope.line_to_byte(first), rope.line_to_byte(last));
+    for (start, end, kind) in rc_sql::highlight(&text) {
+        if end <= from || start >= to {
+            continue;
+        }
+        let hl = match kind {
+            rc_sql::HlKind::Keyword => Hl::Keyword,
+            rc_sql::HlKind::String => Hl::String,
+            rc_sql::HlKind::Number => Hl::Number,
+            rc_sql::HlKind::Comment => Hl::Comment,
+            rc_sql::HlKind::Liquibase => Hl::Preproc,
+            rc_sql::HlKind::Operator => Hl::Operator,
+            rc_sql::HlKind::Punct => Hl::Punct,
+            rc_sql::HlKind::Param => Hl::Parameter,
+            rc_sql::HlKind::Ident => continue,
+        };
+        let (start, end) = (start.max(from), end.min(to));
+        let (first_line, last_line) = (rope.byte_to_line(start), rope.byte_to_line(end.saturating_sub(1).max(start)));
+        for line in first_line..=last_line {
+            let line_char = rope.line_to_char(line);
+            let line_end = rope.line_to_byte(line + 1).min(end);
+            let s = rope.byte_to_char(start.max(rope.line_to_byte(line))) - line_char;
+            let e = rope.byte_to_char(line_end) - line_char;
+            // A span never covers the line break.
+            let e = e.min(rope.line(line).len_chars() - usize::from(rope.line(line).chars().last().is_some_and(|c| c == '\n')));
+            if e > s
+                && let Some(spans) = lines.get_mut(line - first)
+            {
+                spans.push(Span { start: s, end: e, hl });
+            }
+        }
+    }
+    lines
 }
 
 /// Merges per-character roles into spans, dropping plain text.
@@ -724,6 +768,23 @@ mod tests {
         assert!(lines[3].iter().any(|s| s.hl == Hl::Keyword && text(3, s) == "RUN"));
         assert!(lines[3].iter().any(|s| s.hl == Hl::String && text(3, s) == "\"$VERSION\""));
     }
+    #[test]
+    fn postgresql_highlights_across_lines_with_char_columns() {
+        let src = "--changeset ada:1\n/* zażółć\n gęślą */ select 'ą', 1\nfrom t;\ncreate function f() returns int language sql as $$\n  select 2\n$$;\n";
+        let rope = Rope::from_str(src);
+        assert_eq!(Lang::from_path(std::path::Path::new("db/001.sql")), Lang::Sql);
+        let lines = highlight_lexical(Lang::Sql, &rope, 0, rope.len_lines()).unwrap();
+        let text = |line: usize, s: &Span| rope.line(line).chars().skip(s.start).take(s.end - s.start).collect::<String>();
+        let roles = |line: usize| lines[line].iter().map(|s| (text(line, s), s.hl)).collect::<Vec<_>>();
+        assert_eq!(roles(0), [("--changeset ada:1".to_string(), Hl::Preproc)]);
+        assert_eq!(roles(1), [("/* zażółć".to_string(), Hl::Comment)]);
+        assert_eq!(roles(2)[0], (" gęślą */".to_string(), Hl::Comment));
+        assert!(roles(2).contains(&("select".to_string(), Hl::Keyword)) && roles(2).contains(&("'ą'".to_string(), Hl::String)));
+        assert!(roles(5).contains(&("select".to_string(), Hl::Keyword)), "inside $$: {:?}", roles(5));
+        // A window of lines gives the same spans.
+        assert_eq!(highlight_lexical(Lang::Sql, &rope, 2, 2).unwrap(), lines[2..4].to_vec());
+    }
+
     #[test]
     fn godot_scenes_and_scripts_highlight_without_a_grammar() {
         assert_eq!(Lang::from_path(std::path::Path::new("/g/Main.tscn")), Lang::GodotResource);

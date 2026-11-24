@@ -1791,5 +1791,23 @@
   "explorer-files": {
     "Solution": "Projektmappe",
     "Open Preview": "Vorschau öffnen"
+  },
+  "sql": {
+    "Changeset {id}": "Changeset {id}",
+    "Declarations of {name}": "Deklarationen von {name}",
+    "Usages of {name}": "Verwendungen von {name}",
+    "on {table}": "auf {table}",
+    "…and {n} more": "…und {n} weitere",
+    "No SQL objects": "Keine SQL-Objekte",
+    "Tables, views, functions and procedures this file creates appear here.": "Tabellen, Sichten, Funktionen und Prozeduren, die diese Datei anlegt, erscheinen hier.",
+    "Schema": "Schema",
+    "Table": "Tabelle",
+    "Materialized view": "Materialisierte Sicht",
+    "Function": "Funktion",
+    "Procedure": "Prozedur",
+    "Domain": "Domäne",
+    "Index": "Index",
+    "Trigger": "Trigger",
+    "Extension": "Erweiterung"
   }
 }

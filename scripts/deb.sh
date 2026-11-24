@@ -46,6 +46,10 @@ install -d "$PKG/usr/share/doc/dotcraft"
   sed 's/^/ /; s/^ $/ ./' LICENSE-MIT
   echo
   echo "Icons in the binary come from the IntelliJ Platform (Apache-2.0); see /usr/share/common-licenses/Apache-2.0."
+  echo
+  echo "Files: crates/rc-sql (libpg_query, PostgreSQL's parser)"
+  echo "License: BSD-3-Clause and PostgreSQL"
+  sed 's/^/ /; s/^ $/ ./' docs/third-party/libpg_query-LICENSE.txt
 } > "$PKG/usr/share/doc/dotcraft/copyright"
 
 # The binary links only glibc and libgcc; windowing and GPU libraries are loaded at runtime.

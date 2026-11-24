@@ -24,6 +24,7 @@ mod insight;
 mod package_insight;
 mod pull_requests;
 mod appsettings_insight;
+mod sql_insight;
 mod item_templates;
 mod runner;
 mod search;
@@ -47,6 +48,8 @@ mod insight_tests;
 mod package_insight_tests;
 #[cfg(test)]
 mod appsettings_insight_tests;
+#[cfg(test)]
+mod sql_insight_tests;
 #[cfg(test)]
 mod reload_acceptance_tests;
 #[cfg(test)]

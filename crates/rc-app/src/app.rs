@@ -144,6 +144,8 @@ pub struct DotCraftApp {
     pub packages: crate::package_insight::PackageInsight,
     /// Completion, hover and problems in `appsettings*.json`.
     pub appsettings: crate::appsettings_insight::SettingsInsight,
+    /// Problems, hover and navigation in PostgreSQL files.
+    pub sql: crate::sql_insight::SqlInsight,
     pub runner: Runner,
     user_secrets: crate::user_secrets::UserSecrets,
     pub docker_services: crate::docker_services::DockerServices,
@@ -286,6 +288,7 @@ impl DotCraftApp {
             spelling: crate::spellcheck::Spelling::new(waker.clone()),
             packages: crate::package_insight::PackageInsight::new(waker.clone()),
             appsettings: crate::appsettings_insight::SettingsInsight::new(waker.clone()),
+            sql: crate::sql_insight::SqlInsight::new(waker.clone()),
             runner: Runner::new(waker.clone()),
             user_secrets: crate::user_secrets::UserSecrets::new(waker.clone()),
             docker_services: crate::docker_services::DockerServices::new(waker.clone()),
@@ -494,6 +497,7 @@ impl DotCraftApp {
         self.dependency_diagram.request(workspace_projects.clone());
         self.packages.set_workspace(&root, workspace_projects);
         self.appsettings.set_workspace(&root);
+        self.sql.set_workspace(&root);
         self.refresh_endpoints();
         self.restore_session(session);
     }
@@ -988,6 +992,24 @@ impl DotCraftApp {
         }
     }
 
+    /// Results of the PostgreSQL insight.
+    pub fn handle_sql(&mut self, outputs: Vec<crate::sql_insight::SqlOutput>) {
+        use crate::sql_insight::SqlOutput;
+        for o in outputs {
+            match o {
+                SqlOutput::Open { path, line, col } => self.open_at(&path, line, col),
+                SqlOutput::Usages { title, targets } => self.handle_insight(vec![InsightOutput::Usages { title, targets }]),
+                SqlOutput::Message(m) => self.notify(m, false),
+            }
+        }
+    }
+
+    /// The text of a file: an open document's, else the saved one (for result lists).
+    pub fn docs_text(&self) -> impl Fn(&Path) -> Option<String> + 'static {
+        let open: std::collections::HashMap<PathBuf, String> = self.docs.list.iter().filter(|d| crate::sql_insight::is_sql(d)).map(|d| (d.path.clone(), d.editor.buffer.rope().to_string())).collect();
+        move |p: &Path| open.get(p).cloned().or_else(|| std::fs::read_to_string(p).ok())
+    }
+
     /// Applies a fix of a project file's package (or shows the package in the NuGet window).
     pub fn apply_package_fix(&mut self, fix: crate::package_insight::PackageFix) {
         if let crate::package_insight::PackageFix::Open { id } = &fix {
@@ -1081,6 +1103,21 @@ impl DotCraftApp {
                 }
             };
             self.handle_appsettings(outputs);
+            return;
+        }
+        // PostgreSQL: declarations and usages across the workspace's SQL files.
+        if crate::sql_insight::is_sql(&self.docs.list[i]) && matches!(action, Action::QuickDoc | Action::GotoDeclaration | Action::FindUsages) {
+            if action == Action::QuickDoc {
+                self.sql.quick_doc(&mut self.docs.list[i], caret_screen);
+                return;
+            }
+            let caret = self.docs.list[i].editor.caret();
+            let docs_text = self.docs_text();
+            let outputs = self.sql.navigate(&self.docs.list[i], caret, action == Action::FindUsages, &docs_text);
+            if outputs.iter().any(|o| !matches!(o, crate::sql_insight::SqlOutput::Message(_))) {
+                self.push_nav();
+            }
+            self.handle_sql(outputs);
             return;
         }
         // .proto: declarations and usages across the workspace's .proto files.
@@ -1725,6 +1762,7 @@ impl DotCraftApp {
         }
         self.packages.republish();
         self.appsettings.republish();
+        self.sql.republish();
     }
 
     /// Opens the declaration of a test from its fully qualified name (Tests window).
@@ -2158,6 +2196,7 @@ impl DotCraftApp {
         let paths: Vec<PathBuf> = events.iter().map(|e| e.path().to_path_buf()).collect();
         self.packages.files_changed(&paths);
         self.appsettings.files_changed(&paths);
+        self.sql.files_changed(&paths);
         if let Some(index) = &self.files.index
             && !events.is_empty()
         {
@@ -2392,6 +2431,7 @@ impl eframe::App for DotCraftApp {
         let outputs = self.packages.update(&mut self.docs, &mut self.insight.problems, self.nuget.selected_source());
         self.handle_packages(outputs);
         self.appsettings.update(&mut self.docs, &mut self.insight.problems);
+        self.sql.update(&mut self.docs, &mut self.insight.problems);
         let outs = self.runner.update();
         crate::ui::run_windows::handle_outputs(self, outs);
         self.docker_services.poll();

@@ -17,6 +17,7 @@ or on the shared tokio runtime and reports back through channels that wake the U
 | `rc-dotnet` | SDKs, solutions/projects, MSBuild, build/run/test, TRX, NuGet. |
 | `rc-vcs` | Git through the `git` CLI; pull requests on GitHub and Azure DevOps (REST, tokens in the OS keychain). |
 | `rc-search` | File index, fuzzy search, find/replace in files. |
+| `rc-sql` | PostgreSQL files without a database: libpg_query's scanner and parse tree, Liquibase changesets, definitions, references and errors per file, and an index that links a folder. |
 | `rc-term` | Terminal emulator (alacritty_terminal + portable-pty) rendered in egui. |
 
 ## Conventions
