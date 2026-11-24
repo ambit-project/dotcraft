@@ -1863,8 +1863,11 @@ fn exec(ui: &Ui, state: &mut EditorState, config: &EditorConfig, action: Action,
         }
         Undo if !ro => state.undo(),
         Redo if !ro => state.redo(),
-        // Copy/cut/paste come as egui events (from the keyboard or the native menu).
-        Copy | Cut | Paste => {}
+        // From a menu: the selection (or the line) goes to the clipboard like ⌘C / ⌘X. Paste
+        // comes as an egui event once the platform hands the clipboard over.
+        Copy => copy(ui, state, false),
+        Cut => copy(ui, state, true),
+        Paste => {}
         SelectAll => {
             state.selection = Selection::single(Range::new(0, rope.len_chars()));
         }

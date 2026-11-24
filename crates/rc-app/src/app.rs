@@ -2512,6 +2512,10 @@ impl eframe::App for DotCraftApp {
         crate::ui::frame(self, ui, editor_actions);
         crate::ui::editor_workflows::show(self, &ctx);
         crate::ui::pull_requests::create_dialog(self, &ctx);
+        // Whatever reached the clipboard this frame (editor, preview, menus) is confirmed.
+        if let Some(n) = ctx.output(|o| o.commands.iter().rev().find_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.chars().count()) } else { None })) {
+            self.notify(if n == 0 { tr("Nothing to copy").to_string() } else { trf("Copied to clipboard ({n} characters)", &[("n", &n)]) }, false);
+        }
         self.update_notice(&ctx);
         self.docs.reparse_edited();
         let now = ctx.input(|i| i.time);

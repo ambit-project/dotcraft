@@ -40,7 +40,9 @@ rfd = "0.17"
 dirs = "6"
 muda = { version = "0.21", default-features = false }
 egui_commonmark = { version = "0.25", default-features = false, features = ["pulldown_cmark", "load-images"] }
-egui_extras = { version = "0.36", default-features = false, features = ["image", "file"] }
+egui_extras = { version = "0.36", default-features = false, features = ["image", "file", "svg_text"] }
+# Mermaid diagrams of the Markdown preview, rendered to SVG in Rust (no browser, no Node).
+mermaid-rs-renderer = { version = "0.3.1", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif"] }
 # SQL Server (read-only Database window): TDS over TCP with rustls; passwords in the OS keychain.
 tiberius = { version = "0.13", default-features = false, features = ["tds73", "rustls", "sql-browser-tokio"] }

@@ -1809,5 +1809,14 @@
     "Index": "インデックス",
     "Trigger": "トリガー",
     "Extension": "拡張機能"
+  },
+  "clipboard": {
+    "Copied to clipboard ({n} characters)": "クリップボードにコピーしました（{n} 文字）",
+    "Nothing to copy": "コピーするものがありません"
+  },
+  "markdown-mermaid": {
+    "Mermaid diagram": "Mermaid 図",
+    "Mermaid: {error}": "Mermaid: {error}",
+    "The diagram could not be drawn": "図を描画できませんでした"
   }
 }

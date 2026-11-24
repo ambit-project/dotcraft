@@ -1809,5 +1809,14 @@
     "Index": "Índice",
     "Trigger": "Gatilho",
     "Extension": "Extensão"
+  },
+  "clipboard": {
+    "Copied to clipboard ({n} characters)": "Copiado para a área de transferência ({n} caracteres)",
+    "Nothing to copy": "Nada para copiar"
+  },
+  "markdown-mermaid": {
+    "Mermaid diagram": "Diagrama Mermaid",
+    "Mermaid: {error}": "Mermaid: {error}",
+    "The diagram could not be drawn": "Não foi possível desenhar o diagrama"
   }
 }

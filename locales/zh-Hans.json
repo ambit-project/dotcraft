@@ -1809,5 +1809,14 @@
     "Index": "索引",
     "Trigger": "触发器",
     "Extension": "扩展"
+  },
+  "clipboard": {
+    "Copied to clipboard ({n} characters)": "已复制到剪贴板（{n} 个字符）",
+    "Nothing to copy": "没有可复制的内容"
+  },
+  "markdown-mermaid": {
+    "Mermaid diagram": "Mermaid 图",
+    "Mermaid: {error}": "Mermaid：{error}",
+    "The diagram could not be drawn": "无法绘制该图"
   }
 }

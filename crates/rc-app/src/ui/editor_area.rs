@@ -566,8 +566,15 @@ fn editor_context_menu(app: &mut DotCraftApp, resp: &egui::Response) {
     if let Some(fix) = typo_fix {
         crate::spellcheck::apply(app, fix);
     }
-    if let Some(cmd) = edit {
-        forward_edit(&resp.ctx, cmd);
+    // Copy and Cut run as editor actions next frame: an event pushed now would come after the
+    // editor read this frame's input and be lost.
+    match edit {
+        Some(MenuCommand::Copy) => actions.push(Action::Copy),
+        Some(MenuCommand::Cut) => actions.push(Action::Cut),
+        Some(cmd) => {
+            forward_edit(&resp.ctx, cmd);
+        }
+        None => {}
     }
     if usings && let Some(i) = app.docs.active {
         app.insight.add_missing_usings(&app.docs.list[i]);
