@@ -1768,5 +1768,15 @@
     "New profile": "新しいプロファイル",
     "Profile name": "プロファイル名",
     "Use NAME=value for each environment variable": "各環境変数には NAME=value の形式を使用してください"
+  },
+  "csharpier": {
+    "CSharpier is not installed: run dotnet tool install -g csharpier, add it as a local tool, or set its path in Settings › Tools": "CSharpier がインストールされていません: dotnet tool install -g csharpier を実行するか、ローカル ツールとして追加するか、設定 › ツール でパスを指定してください",
+    "CSharpier could not format the file: {error}": "CSharpier でファイルをフォーマットできませんでした: {error}",
+    "CSharpier executable": "CSharpier 実行ファイル",
+    "CSharpier when the project uses it, otherwise Roslyn": "プロジェクトが使用していれば CSharpier、それ以外は Roslyn",
+    "Roslyn (language server)": "Roslyn (言語サーバー)",
+    "C# code formatter": "C# コード フォーマッター",
+    "Reformat C# files with CSharpier on save": "保存時に CSharpier で C# ファイルを再フォーマットする",
+    "CSharpier 1.0 or later: a local tool from the repository's dotnet-tools.json, the CSharpier executable above, or a global tool (dotnet tool install -g csharpier).": "CSharpier 1.0 以降: リポジトリの dotnet-tools.json のローカル ツール、上の CSharpier 実行ファイル、またはグローバル ツール (dotnet tool install -g csharpier)。"
   }
 }

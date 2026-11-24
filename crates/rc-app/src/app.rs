@@ -147,6 +147,7 @@ pub struct DotCraftApp {
     pub runner: Runner,
     user_secrets: crate::user_secrets::UserSecrets,
     pub docker_services: crate::docker_services::DockerServices,
+    pub csharpier: crate::csharpier::Csharpier,
     pub docker_runs: crate::docker_runs::DockerRuns,
     pub continuous: crate::continuous_testing::ContinuousTesting,
     pub benchmarks: crate::benchmarks::Benchmarks,
@@ -284,6 +285,7 @@ impl DotCraftApp {
             runner: Runner::new(waker.clone()),
             user_secrets: crate::user_secrets::UserSecrets::new(waker.clone()),
             docker_services: crate::docker_services::DockerServices::new(waker.clone()),
+            csharpier: crate::csharpier::Csharpier::new(waker.clone()),
             docker_runs: crate::docker_runs::DockerRuns::new(waker.clone()),
             continuous: crate::continuous_testing::ContinuousTesting::new(waker.clone()),
             benchmarks: crate::benchmarks::Benchmarks::new(waker.clone()),
@@ -1078,9 +1080,13 @@ impl DotCraftApp {
             self.proto_navigate(caret, action == Action::FindUsages);
             return;
         }
-        // JSON and XML are formatted here; C# by the server.
+        // JSON and XML are formatted here; C# by the server or CSharpier.
         if action == Action::Reformat && !crate::insight::is_csharp(&self.docs.list[i]) {
             self.format_locally(i);
+            return;
+        }
+        if action == Action::Reformat && crate::csharpier::applies(self.settings.csharp_formatter, &self.docs.list[i].path) {
+            self.format_with_csharpier(i, false);
             return;
         }
         if !self.insight.ready() || !crate::insight::is_csharp(&self.docs.list[i]) {
@@ -1197,6 +1203,60 @@ impl DotCraftApp {
             self.open_at(&t.path, t.line, t.col);
         } else {
             self.notify(tr("Cannot find declaration to go to"), false);
+        }
+    }
+
+    /// Reformat Code of C# document `i` with CSharpier (the whole file); `save` saves it after.
+    /// Returns false when CSharpier is not installed.
+    pub fn format_with_csharpier(&mut self, i: usize, save: bool) -> bool {
+        let d = &self.docs.list[i];
+        let Some(command) = crate::csharpier::resolve(&d.path, self.settings.csharpier_path.as_deref(), &dotnet_path(&self.settings)) else {
+            self.notify(tr("CSharpier is not installed: run dotnet tool install -g csharpier, add it as a local tool, or set its path in Settings › Tools"), true);
+            return false;
+        };
+        let (path, id, version, text) = (d.path.clone(), d.editor.id, d.editor.buffer.version(), d.editor.buffer.rope().to_string());
+        self.csharpier.format(command, &path, id, version, text, save);
+        true
+    }
+
+    /// Applies CSharpier results to documents that did not change meanwhile.
+    fn poll_csharpier(&mut self) {
+        for f in self.csharpier.drain() {
+            let Some(i) = self.docs.list.iter().position(|d| d.editor.id == f.doc) else { continue };
+            match f.result {
+                Err(error) => self.notify(trf("CSharpier could not format the file: {error}", &[("error", &error)]), true),
+                Ok(formatted) => {
+                    if self.docs.list[i].editor.buffer.version() != f.version {
+                        continue;
+                    }
+                    if let Some((a, b, text)) = crate::csharpier::minimal_change(&f.original, &formatted) {
+                        self.docs.list[i].editor.apply_text_edits(vec![rc_text::Change::new(a, b, text)]);
+                    }
+                    if f.save && self.docs.list[i].is_modified() {
+                        let path = self.docs.list[i].path.clone();
+                        match self.docs.save(i) {
+                            Ok(()) => self.insight.did_save_synced(&mut self.docs, &path),
+                            Err(error) => self.notify(error, true),
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Reformat on save: C# documents CSharpier formats and saves again once it answers.
+    fn csharpier_on_save(&mut self, paths: &[PathBuf]) {
+        if !self.settings.csharpier_on_save {
+            return;
+        }
+        for p in paths {
+            if let Some(i) = self.docs.index_of(p)
+                && crate::insight::is_csharp(&self.docs.list[i])
+                && crate::csharpier::applies(self.settings.csharp_formatter, p)
+                && !self.format_with_csharpier(i, true)
+            {
+                break;
+            }
         }
     }
 
@@ -1373,6 +1433,7 @@ impl DotCraftApp {
                     match self.docs.save(i) {
                         Ok(()) => {
                             self.insight.did_save_synced(&mut self.docs, &path);
+                            self.csharpier_on_save(std::slice::from_ref(&path));
                             if changed {
                                 self.continuous.note_saved(&path);
                                 if self.continuous.waiting_for_save() { ctx.request_repaint_after(std::time::Duration::from_millis(450)); }
@@ -1384,7 +1445,9 @@ impl DotCraftApp {
                 self.save_session();
             }
             Action::SaveAll => {
-                for path in self.save_all_docs() { self.continuous.note_saved(&path); }
+                let saved = self.save_all_docs();
+                self.csharpier_on_save(&saved);
+                for path in saved { self.continuous.note_saved(&path); }
                 if self.continuous.waiting_for_save() { ctx.request_repaint_after(std::time::Duration::from_millis(450)); }
                 self.save_session();
             }
@@ -2265,6 +2328,7 @@ impl eframe::App for DotCraftApp {
         let outs = self.runner.update();
         crate::ui::run_windows::handle_outputs(self, outs);
         self.docker_services.poll();
+        self.poll_csharpier();
         self.docker_runs.poll(&mut self.runner);
         if let Some(build) = &self.runner.build
             && matches!(build.action, Some(rc_dotnet::BuildAction::Build | rc_dotnet::BuildAction::Rebuild))

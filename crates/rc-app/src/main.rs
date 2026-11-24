@@ -10,6 +10,7 @@ mod todo;
 mod monitor;
 mod update;
 mod convert;
+mod csharpier;
 mod debugger;
 mod user_secrets;
 mod docker_services;
