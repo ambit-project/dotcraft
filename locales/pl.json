@@ -1820,5 +1820,28 @@
     "The diagram could not be drawn": "Nie udało się narysować diagramu",
     "Click to enlarge": "Kliknij, aby powiększyć",
     "Fit": "Dopasuj"
+  },
+  "changesets": {
+    "No Liquibase db/ folder here (changelog/ with CHANGELOG.md)": "Brak tu folderu db/ Liquibase (changelog/ z CHANGELOG.md)",
+    "Development only applies to data changesets": "„Tylko deweloperski” dotyczy tylko changesetów danych",
+    "{file} already exists": "{file} już istnieje",
+    "{file} already exists - change it in place (runOnChange:true runs it again)": "{file} już istnieje - zmień go w miejscu (runOnChange:true uruchomi go ponownie)",
+    "Letters, digits and underscores only, e.g. client_list or {schema}.client_list": "Tylko litery, cyfry i podkreślenia, np. client_list albo {schema}.client_list",
+    "Name the feature": "Podaj nazwę funkcjonalności",
+    "Pick a module": "Wybierz moduł",
+    "Say what the change does (the comment)": "Napisz, co robi zmiana (komentarz)",
+    "The feature name must contain letters or digits": "Nazwa funkcjonalności musi zawierać litery lub cyfry",
+    "author {author}": "autor {author}",
+    "Created {file} and its CHANGELOG.md entry": "Utworzono {file} i wpis w CHANGELOG.md",
+    "Development only (context:dev, never in production)": "Tylko deweloperski (context:dev, nigdy na produkcji)",
+    "Feature name": "Nazwa funkcjonalności",
+    "Module": "Moduł",
+    "Name, e.g. client_list or {schema}.validate": "Nazwa, np. client_list albo {schema}.validate",
+    "New Changeset": "Nowy changeset",
+    "No modules in changelog/modules/ (folders <nn>-<module>, e.g. 00-platform)": "Brak modułów w changelog/modules/ (foldery <nn>-<moduł>, np. 00-platform)",
+    "What the change does (the --comment)": "Co robi zmiana (--comment)",
+    "New Changeset…": "Nowy changeset…",
+    "DDL": "DDL",
+    "Data": "Dane"
   }
 }

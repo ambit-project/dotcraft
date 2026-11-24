@@ -119,6 +119,8 @@ Play mode, building players and debugging are done in the Unity Editor: Unity ru
 
 The workspace is indexed in the background when it opens (900 files take about a fifth of a second) and again for each SQL file that changes on disk; open files count as edited.
 
+**New Changeset…** (the explorer's and a SQL editor's context menu, inside a Liquibase `db/` folder) creates what a project's `db/scripts/new-ddl.sh`, `new-data.sh` and `new-module-routine.sh` do: a DDL or data changeset with today's next number (`changelog/<yyyy>/1-ddl/<yyyymmdd>-<nn>-<slug>.sql`, data optionally `context:dev`), or a module's view, procedure or function (`changelog/modules/<nn>-<module>/<kind>s/<schema>.<name>.sql`, `runOnChange:true`, switching to the module owner's role), with its `CHANGELOG.md` entry. The author and the owner's role are read from the project's existing changesets (`CHANGESET_AUTHOR` overrides the author), so it works in projects without the scripts too.
+
 ## Requirements
 
 - macOS 11 or later (Apple Silicon or Intel), Windows 10/11 (x64 or ARM64, DirectX 12), or Linux with glibc 2.35+ (x64 or ARM64; Vulkan or OpenGL ES, X11 or Wayland).

@@ -1362,6 +1362,14 @@ impl DotCraftApp {
         }
     }
 
+    /// New Changeset… for the `db/` project around `path`.
+    pub fn new_changeset(&mut self, path: &Path) {
+        match crate::changesets::find(path) {
+            Some(db) => self.dialog = Some(Dialog::NewChangeset(Box::new(crate::ui::dialogs::ChangesetForm::new(db, path)))),
+            None => self.notify(tr("No Liquibase db/ folder here (changelog/ with CHANGELOG.md)"), false),
+        }
+    }
+
     /// Opens a Markdown file showing only its preview (or switches its open tab to it).
     pub fn open_markdown_preview(&mut self, path: &Path) {
         self.open_file(path);
@@ -2102,6 +2110,7 @@ impl DotCraftApp {
                 }
                 ExplorerAction::SetView(view) => self.explorer.set_view(view),
                 ExplorerAction::OpenPreview(p) => self.open_markdown_preview(&p),
+                ExplorerAction::NewChangeset(p) => self.new_changeset(&p),
                 ExplorerAction::LocateActive => self.locate_active(),
                 ExplorerAction::ToggleShowAll => self.explorer.set_show_all(!self.explorer.show_all),
                 ExplorerAction::NewItem(dir, kind) => self.dialog = Some(Dialog::NewFile { dir, name: String::new(), kind, error: None }),

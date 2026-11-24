@@ -29,6 +29,8 @@ pub enum Dialog {
     /// ⌥F3: pick the bookmark's digit or letter.
     BookmarkMnemonic { path: PathBuf, line: usize },
     NewFile { dir: PathBuf, name: String, kind: crate::item_templates::ItemKind, error: Option<String> },
+    /// A Liquibase changeset of a `db/` project (like its `db/scripts/new-*.sh`).
+    NewChangeset(Box<ChangesetForm>),
     Rename { path: PathBuf, name: String, error: Option<String> },
     ConfirmDelete { path: PathBuf },
     RecentFiles { selected: usize, filter: String },
@@ -95,6 +97,7 @@ pub fn show(app: &mut DotCraftApp, ctx: &Context) {
         Dialog::BookmarkMnemonic { path, line } => bookmark_mnemonic(app, ctx, path, *line),
         Dialog::Templates { surround, filter, selected } => templates(app, ctx, *surround, filter, selected),
         Dialog::NewFile { dir, name, kind, error } => new_file(app, ctx, dir, name, *kind, error),
+        Dialog::NewChangeset(form) => new_changeset(app, ctx, form),
         Dialog::Rename { path, name, error } => rename(app, ctx, path, name, error),
         Dialog::ConfirmDelete { path } => confirm_delete(app, ctx, path),
         Dialog::RecentFiles { selected, filter } => recent_files(app, ctx, selected, filter),
@@ -799,6 +802,131 @@ fn evaluate(app: &mut DotCraftApp, ctx: &Context, expression: &mut String, focus
 
 /// A new file name gets `.cs` when it has no extension, and a C# file gets a class skeleton
 /// in the namespace of its folder.
+/// The form of Dialog::NewChangeset.
+pub struct ChangesetForm {
+    pub db: crate::changesets::DbProject,
+    pub kind: crate::changesets::Kind,
+    pub req: crate::changesets::Request,
+    pub error: Option<String>,
+    pub focus: bool,
+}
+
+impl ChangesetForm {
+    /// The form for `path`'s project, starting with what `path` suggests: a module's views,
+    /// procedures or functions, data, or DDL.
+    pub fn new(db: crate::changesets::DbProject, path: &std::path::Path) -> Self {
+        use crate::changesets::Kind;
+        let rel = path.strip_prefix(db.dir.join("changelog")).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+        let parts: Vec<&str> = rel.split('/').collect();
+        let (kind, module) = match parts.as_slice() {
+            ["modules", m, folder, ..] => (
+                match *folder {
+                    "procedures" => Kind::Procedure,
+                    "functions" => Kind::Function,
+                    _ => Kind::View,
+                },
+                m.to_string(),
+            ),
+            ["modules", m] => (Kind::View, m.to_string()),
+            [_, "2-data", ..] => (Kind::Data, String::new()),
+            _ => (Kind::Ddl, String::new()),
+        };
+        let module = if db.modules.contains(&module) { module } else { db.modules.first().cloned().unwrap_or_default() };
+        ChangesetForm { db, kind, req: crate::changesets::Request { module, ..Default::default() }, error: None, focus: true }
+    }
+}
+
+/// New Changeset: DDL or data with today's next number, or a module's view, procedure or
+/// function; the file opens and CHANGELOG.md gets its entry.
+fn new_changeset(app: &mut DotCraftApp, ctx: &Context, form: &mut ChangesetForm) -> Outcome {
+    use crate::changesets::{Kind, create, target, today};
+    let date = today();
+    let root = app.workspace.as_ref().map(|w| w.ws.root.clone()).unwrap_or_default();
+    let shown = |p: &std::path::Path| {
+        let base = root.parent().filter(|_| !root.as_os_str().is_empty()).unwrap_or(&root);
+        p.strip_prefix(base).unwrap_or(p).display().to_string()
+    };
+    let ((ok, cancel), esc) = modal(ctx, "new_changeset", 520.0, |ui| {
+        let p = rc_kit::pal(ui);
+        title(ui, tr("New Changeset"));
+        ui.label(egui::RichText::new(format!("{} · {}", shown(&form.db.dir), trf("author {author}", &[("author", &form.db.author)]))).size(12.0).color(p.muted));
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            for kind in Kind::ALL {
+                if ui.selectable_label(form.kind == kind, tr(kind.title())).clicked() {
+                    form.kind = kind;
+                    form.error = None;
+                    form.focus = true;
+                }
+            }
+        });
+        ui.add_space(8.0);
+        let mut first = None;
+        if form.kind.is_routine() {
+            if form.db.modules.is_empty() {
+                ui.colored_label(p.error, tr("No modules in changelog/modules/ (folders <nn>-<module>, e.g. 00-platform)"));
+            } else {
+                egui::ComboBox::from_label(tr("Module")).selected_text(form.req.module.clone()).width(240.0).show_ui(ui, |ui| {
+                    for m in &form.db.modules {
+                        ui.selectable_value(&mut form.req.module, m.clone(), m);
+                    }
+                });
+            }
+            let module_name = form.req.module.get(3..).unwrap_or_default().to_string();
+            let hint = trf("Name, e.g. client_list or {schema}.validate", &[("schema", &format!("{module_name}_internal"))]);
+            first = Some(ui.add(egui::TextEdit::singleline(&mut form.req.name).hint_text(hint).desired_width(f32::INFINITY)));
+            ui.add(egui::TextEdit::multiline(&mut form.req.comment).hint_text(tr("What the change does (the --comment)")).desired_rows(3).desired_width(f32::INFINITY));
+        } else {
+            first = first.or(Some(ui.add(egui::TextEdit::singleline(&mut form.req.comment).hint_text(tr("Feature name")).desired_width(f32::INFINITY))));
+            if form.kind == Kind::Data {
+                ui.checkbox(&mut form.req.dev, tr("Development only (context:dev, never in production)"));
+            }
+        }
+        if !matches!(form.kind, Kind::Data) {
+            form.req.dev = false;
+        }
+        if form.focus
+            && let Some(r) = &first
+        {
+            r.request_focus();
+            form.focus = false;
+        }
+        let ready = !form.req.comment.trim().is_empty() && (!form.kind.is_routine() || !form.req.name.trim().is_empty());
+        if ready || !form.req.name.trim().is_empty() || !form.req.comment.trim().is_empty() {
+            let text = match target(&form.db, form.kind, &form.req, date) {
+                Ok(path) => shown(&path),
+                Err(e) => e,
+            };
+            ui.add(egui::Label::new(egui::RichText::new(text).size(12.0).color(p.muted)).truncate());
+        }
+        if let Some(e) = &form.error {
+            ui.colored_label(p.error, e);
+        }
+        let enter = ui.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift) && !form.kind.is_routine();
+        let (ok, cancel) = buttons(ui, tr("Create"), ready);
+        (ok || (enter && ready), cancel)
+    });
+    if ok {
+        match create(&form.db, form.kind, &form.req, date) {
+            Ok(created) => {
+                app.explorer.invalidate(&created.path);
+                app.explorer.invalidate(&form.db.dir.join("CHANGELOG.md"));
+                app.open_file(&created.path);
+                if let Some(d) = app.docs.active_doc_mut() {
+                    d.editor.set_selection(rc_text::Selection::point(created.caret));
+                }
+                app.notify(trf("Created {file} and its CHANGELOG.md entry", &[("file", &shown(&created.path))]), false);
+                return Outcome::Close;
+            }
+            Err(e) => {
+                form.error = Some(e);
+                return Outcome::Keep;
+            }
+        }
+    }
+    if cancel || esc { Outcome::Close } else { Outcome::Keep }
+}
+
 fn new_file(app: &mut DotCraftApp, ctx: &Context, dir: &std::path::Path, name: &mut String, kind: crate::item_templates::ItemKind, error: &mut Option<String>) -> Outcome {
     let heading = trf("New {item}", &[("item", &tr(kind.title()))]);
     let ((ok, cancel), esc) = modal(ctx, "new_file", 380.0, |ui| {

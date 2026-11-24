@@ -1820,5 +1820,28 @@
     "The diagram could not be drawn": "図を描画できませんでした",
     "Click to enlarge": "クリックして拡大",
     "Fit": "全体表示"
+  },
+  "changesets": {
+    "No Liquibase db/ folder here (changelog/ with CHANGELOG.md)": "ここに Liquibase の db/ フォルダーがありません（CHANGELOG.md のある changelog/）",
+    "Development only applies to data changesets": "「開発専用」はデータの changeset にのみ使えます",
+    "{file} already exists": "{file} は既に存在します",
+    "{file} already exists - change it in place (runOnChange:true runs it again)": "{file} は既に存在します。その場で変更してください（runOnChange:true で再実行されます）",
+    "Letters, digits and underscores only, e.g. client_list or {schema}.client_list": "英字・数字・アンダースコアのみ（例: client_list、{schema}.client_list）",
+    "Name the feature": "機能名を入力してください",
+    "Pick a module": "モジュールを選んでください",
+    "Say what the change does (the comment)": "変更の内容を書いてください（コメント）",
+    "The feature name must contain letters or digits": "機能名には英字か数字が必要です",
+    "author {author}": "作成者 {author}",
+    "Created {file} and its CHANGELOG.md entry": "{file} と CHANGELOG.md の項目を作成しました",
+    "Development only (context:dev, never in production)": "開発専用（context:dev、本番には入りません）",
+    "Feature name": "機能名",
+    "Module": "モジュール",
+    "Name, e.g. client_list or {schema}.validate": "名前（例: client_list、{schema}.validate）",
+    "New Changeset": "新しい changeset",
+    "No modules in changelog/modules/ (folders <nn>-<module>, e.g. 00-platform)": "changelog/modules/ にモジュールがありません（<nn>-<module> フォルダー、例: 00-platform）",
+    "What the change does (the --comment)": "変更の内容（--comment）",
+    "New Changeset…": "新しい changeset…",
+    "DDL": "DDL",
+    "Data": "データ"
   }
 }

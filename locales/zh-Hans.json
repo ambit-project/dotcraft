@@ -1820,5 +1820,28 @@
     "The diagram could not be drawn": "无法绘制该图",
     "Click to enlarge": "点击放大",
     "Fit": "适应"
+  },
+  "changesets": {
+    "No Liquibase db/ folder here (changelog/ with CHANGELOG.md)": "这里没有 Liquibase 的 db/ 文件夹（含 CHANGELOG.md 的 changelog/）",
+    "Development only applies to data changesets": "“仅开发”只适用于数据 changeset",
+    "{file} already exists": "{file} 已存在",
+    "{file} already exists - change it in place (runOnChange:true runs it again)": "{file} 已存在：请原地修改（runOnChange:true 会再次运行它）",
+    "Letters, digits and underscores only, e.g. client_list or {schema}.client_list": "仅限字母、数字和下划线，例如 client_list 或 {schema}.client_list",
+    "Name the feature": "请为功能命名",
+    "Pick a module": "请选择模块",
+    "Say what the change does (the comment)": "请说明此更改的作用（注释）",
+    "The feature name must contain letters or digits": "功能名必须包含字母或数字",
+    "author {author}": "作者 {author}",
+    "Created {file} and its CHANGELOG.md entry": "已创建 {file} 及其 CHANGELOG.md 条目",
+    "Development only (context:dev, never in production)": "仅开发（context:dev，绝不进入生产）",
+    "Feature name": "功能名称",
+    "Module": "模块",
+    "Name, e.g. client_list or {schema}.validate": "名称，例如 client_list 或 {schema}.validate",
+    "New Changeset": "新建 changeset",
+    "No modules in changelog/modules/ (folders <nn>-<module>, e.g. 00-platform)": "changelog/modules/ 中没有模块（文件夹 <nn>-<module>，例如 00-platform）",
+    "What the change does (the --comment)": "此更改的作用（--comment）",
+    "New Changeset…": "新建 changeset…",
+    "DDL": "DDL",
+    "Data": "数据"
   }
 }

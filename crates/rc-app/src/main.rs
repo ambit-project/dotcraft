@@ -25,6 +25,7 @@ mod package_insight;
 mod pull_requests;
 mod appsettings_insight;
 mod sql_insight;
+mod changesets;
 mod item_templates;
 mod runner;
 mod search;

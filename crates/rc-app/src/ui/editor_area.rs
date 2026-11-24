@@ -506,6 +506,7 @@ fn editor_context_menu(app: &mut DotCraftApp, resp: &egui::Response) {
     // .proto and PostgreSQL files navigate with DotCraft's own index (no language server).
     let proto = app.docs.active_doc().is_some_and(|d| matches!(d.editor.syntax.lang, rc_syntax::Lang::Proto | rc_syntax::Lang::Sql));
     let shortcut = |app: &DotCraftApp, a: Action| app.keymap.shortcut_text(a);
+    let mut new_changeset = None;
     let mut actions = Vec::new();
     let mut edit = None;
     let mut usings = false;
@@ -542,6 +543,14 @@ fn editor_context_menu(app: &mut DotCraftApp, resp: &egui::Response) {
             entry(ui, Some(ico::TW_FIND), tr("Find Usages"), Action::FindUsages);
             ui.separator();
         }
+        // A SQL file of a Liquibase db/ project (asked only while the menu is open).
+        let changeset_here = app.docs.active_doc().filter(|d| d.editor.syntax.lang == rc_syntax::Lang::Sql).map(|d| d.path.clone()).filter(|p| crate::changesets::locate(p).is_some());
+        if let Some(path) = &changeset_here
+            && theme::menu_item(ui, Some(ico::TW_DATABASE), tr("New Changeset…"), false).clicked()
+        {
+            new_changeset = Some(path.clone());
+            ui.close();
+        }
         for (icon, text, cmd) in [(ico::CUT, tr("Cut"), MenuCommand::Cut), (ico::COPY, tr("Copy"), MenuCommand::Copy), (ico::PASTE, tr("Paste"), MenuCommand::Paste)] {
             if theme::menu_item(ui, Some(icon), text, false).clicked() {
                 edit = Some(cmd);
@@ -576,6 +585,9 @@ fn editor_context_menu(app: &mut DotCraftApp, resp: &egui::Response) {
             forward_edit(&resp.ctx, cmd);
         }
         None => {}
+    }
+    if let Some(path) = new_changeset {
+        app.new_changeset(&path);
     }
     if usings && let Some(i) = app.docs.active {
         app.insight.add_missing_usings(&app.docs.list[i]);

@@ -115,6 +115,8 @@ pub enum ExplorerAction {
     SetView(ExplorerView),
     /// Open a Markdown file showing only its preview.
     OpenPreview(PathBuf),
+    /// New Changeset… of the Liquibase `db/` project around this path.
+    NewChangeset(PathBuf),
 }
 
 /// `.md` and `.markdown` files, which the editor can show as a preview.
@@ -947,6 +949,12 @@ fn context_menu(ui: &mut Ui, row: &Row, solution: Option<&Path>, project: Projec
         new_item_menu(ui, &target_dir, &mut filter, actions);
         ui.ctx().data_mut(|data| data.insert_temp(id, filter));
     });
+    // Our PostgreSQL projects: a changeset like db/scripts/new-ddl.sh, new-data.sh or
+    // new-module-routine.sh.
+    if crate::changesets::locate(&target_dir).is_some() && theme::menu_item(ui, Some(ico::TW_DATABASE), tr("New Changeset…"), false).clicked() {
+        actions.push(ExplorerAction::NewChangeset(target_dir.clone()));
+        ui.close();
+    }
     ui.separator();
     // The Files tab's root is the repository itself: no rename or delete from here.
     if !matches!(&row.kind, NodeKind::FilesRoot(_)) {
@@ -1312,6 +1320,19 @@ mod template_picker_tests {
         harness.run_steps(2);
         assert!(harness.state().1.is_empty());
     }
+}
+
+/// The actions a click on `label` in `kind`'s context menu gives (empty when there is no such item).
+#[cfg(test)]
+pub fn menu_actions_for_test(kind: NodeKind, label: &str) -> Vec<ExplorerAction> {
+    use egui_kittest::{Harness, kittest::Queryable};
+    let row = Row { key: "row".into(), kind, depth: 0, label: "row".into(), secondary: String::new(), icon: ico::FOLDER, expandable: false };
+    let mut h = Harness::new_ui_state(move |ui, actions: &mut Vec<ExplorerAction>| context_menu(ui, &row, None, ProjectMenu::default(), actions), Vec::new());
+    h.run();
+    let Some(item) = h.query_by_label(label) else { return Vec::new() };
+    item.click();
+    h.run();
+    h.state().clone()
 }
 
 #[cfg(test)]
