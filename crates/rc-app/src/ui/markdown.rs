@@ -20,8 +20,15 @@ pub fn layout(view: MdView, rect: Rect) -> (Option<Rect>, Option<Rect>) {
     }
 }
 
-/// Diagrams already rendered: (source hash, dark) → the image's `bytes://` URI or the error.
-type MermaidMap = std::collections::HashMap<(u64, bool), Result<String, String>>;
+/// A rendered diagram: its image (`bytes://…svg`) and its size in points.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Diagram {
+    pub uri: String,
+    pub size: egui::Vec2,
+}
+
+/// Diagrams already rendered: (source hash, dark) → the diagram or the error.
+type MermaidMap = std::collections::HashMap<(u64, bool), Result<Diagram, String>>;
 
 #[derive(Clone, Default)]
 struct MermaidCache(std::sync::Arc<std::sync::Mutex<MermaidMap>>);
@@ -30,7 +37,7 @@ struct MermaidCache(std::sync::Arc<std::sync::Mutex<MermaidMap>>);
 const MERMAID_CACHE: usize = 64;
 
 /// The diagram of `source` as an image URI the preview can show, or why it can't be drawn.
-fn mermaid_image(ctx: &egui::Context, source: &str, dark: bool) -> Result<String, String> {
+fn mermaid_image(ctx: &egui::Context, source: &str, dark: bool) -> Result<Diagram, String> {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     source.hash(&mut h);
@@ -41,8 +48,8 @@ fn mermaid_image(ctx: &egui::Context, source: &str, dark: bool) -> Result<String
         return r.clone();
     }
     if map.len() >= MERMAID_CACHE {
-        for uri in map.drain().filter_map(|(_, r)| r.ok()) {
-            ctx.forget_image(&uri);
+        for d in map.drain().filter_map(|(_, r)| r.ok()) {
+            ctx.forget_image(&d.uri);
         }
     }
     let options = mermaid_rs_renderer::RenderOptions {
@@ -54,8 +61,9 @@ fn mermaid_image(ctx: &egui::Context, source: &str, dark: bool) -> Result<String
     let result = match rendered {
         Ok(Ok(svg)) => {
             let uri = format!("bytes://mermaid-{:016x}-{}.svg", key.0, if dark { "dark" } else { "light" });
+            let size = svg_size(&svg).unwrap_or(vec2(800.0, 400.0));
             ctx.include_bytes(uri.clone(), svg.into_bytes());
-            Ok(uri)
+            Ok(Diagram { uri, size })
         }
         Ok(Err(e)) => Err(e.to_string()),
         Err(_) => Err(tr("The diagram could not be drawn").to_string()),
@@ -64,13 +72,42 @@ fn mermaid_image(ctx: &egui::Context, source: &str, dark: bool) -> Result<String
     result
 }
 
-/// `text` with each ```mermaid (or ~~~mermaid) block replaced by an image of its diagram; a
-/// block that does not render stays as code with the error under it.
-pub fn with_mermaid(ctx: &egui::Context, text: &str, dark: bool) -> String {
+/// The size of an SVG from its `viewBox` (else its `width` and `height`).
+fn svg_size(svg: &str) -> Option<egui::Vec2> {
+    let tag = &svg[svg.find("<svg")?..];
+    let tag = &tag[..tag.find('>')?];
+    let attr = |name: &str| -> Option<&str> {
+        let at = tag.find(&format!(" {name}=\""))? + name.len() + 3;
+        Some(&tag[at..at + tag[at..].find('"')?])
+    };
+    if let Some(vb) = attr("viewBox") {
+        let n: Vec<f32> = vb.split([' ', ',']).filter_map(|x| x.trim().parse().ok()).collect();
+        if let [_, _, w, h] = n[..]
+            && w > 0.0
+            && h > 0.0
+        {
+            return Some(vec2(w, h));
+        }
+    }
+    let num = |s: &str| s.trim_end_matches("px").parse::<f32>().ok().filter(|v| *v > 0.0);
+    Some(vec2(num(attr("width")?)?, num(attr("height")?)?))
+}
+
+/// A page cut at its diagrams: Markdown, then a diagram, then Markdown…
+#[derive(Clone, Debug, PartialEq)]
+pub enum Part {
+    Markdown(String),
+    Diagram(Diagram),
+}
+
+/// `text` cut at each ```mermaid (or ~~~mermaid) block that renders; a block that does not
+/// render stays as code with the error under it.
+pub fn split_mermaid(ctx: &egui::Context, text: &str, dark: bool) -> Vec<Part> {
     if !text.contains("mermaid") {
-        return text.to_string();
+        return vec![Part::Markdown(text.to_string())];
     }
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let mut parts = Vec::new();
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < lines.len() {
@@ -78,7 +115,7 @@ pub fn with_mermaid(ctx: &egui::Context, text: &str, dark: bool) -> String {
         let t = line.trim_start();
         let indent = line.len() - t.len();
         let fence: String = t.chars().take_while(|&c| c == '`' || c == '~').collect();
-        let opens = indent < 4 && fence.len() >= 3 && fence.chars().all(|c| c == fence.chars().next().unwrap_or('`'));
+        let opens = indent < 4 && fence.len() >= 3 && fence.chars().all(|c| fence.starts_with(c));
         let info = t[fence.len()..].trim();
         let is_mermaid = opens && info.split_whitespace().next().is_some_and(|w| w.eq_ignore_ascii_case("mermaid"));
         let close = if is_mermaid {
@@ -95,20 +132,120 @@ pub fn with_mermaid(ctx: &egui::Context, text: &str, dark: bool) -> String {
             continue;
         };
         let source: String = lines[i + 1..close].concat();
-        let pad = " ".repeat(indent);
         match mermaid_image(ctx, &source, dark) {
-            Ok(uri) => out.push_str(&format!("{pad}![{}]({uri})\n", tr("Mermaid diagram"))),
+            Ok(diagram) => {
+                if !out.trim().is_empty() {
+                    parts.push(Part::Markdown(std::mem::take(&mut out)));
+                }
+                out.clear();
+                parts.push(Part::Diagram(diagram));
+            }
             Err(e) => {
                 out.push_str(&lines[i..=close].concat());
                 if !out.ends_with('\n') {
                     out.push('\n');
                 }
+                let pad = " ".repeat(indent);
                 out.push_str(&format!("\n{pad}> {}\n", trf("Mermaid: {error}", &[("error", &e.lines().next().unwrap_or_default())])));
             }
         }
         i = close + 1;
     }
-    out
+    if !out.trim().is_empty() || parts.is_empty() {
+        parts.push(Part::Markdown(out));
+    }
+    parts
+}
+
+/// The open enlarged diagram: `zoom` None fits it to the window.
+#[derive(Clone, Debug, PartialEq)]
+struct Zoomed {
+    diagram: Diagram,
+    zoom: Option<f32>,
+}
+
+fn zoom_id() -> egui::Id {
+    egui::Id::new("mermaid_zoom")
+}
+
+/// A diagram of the page, at most `width` wide; a click enlarges it.
+fn diagram(ui: &mut Ui, d: &Diagram, width: f32) {
+    let size = if d.size.x > width { d.size * (width / d.size.x) } else { d.size };
+    let resp = ui
+        .add(egui::Image::new(d.uri.as_str()).fit_to_exact_size(size).sense(egui::Sense::click()))
+        .on_hover_cursor(egui::CursorIcon::ZoomIn)
+        .on_hover_text(tr("Click to enlarge"));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tr("Mermaid diagram")));
+    if resp.clicked() {
+        ui.ctx().data_mut(|data| data.insert_temp(zoom_id(), Zoomed { diagram: d.clone(), zoom: None }));
+    }
+}
+
+/// The enlarged diagram over the window: Fit, 100 %, −, +, ⌘/Ctrl+wheel to zoom, drag to
+/// move, Esc or a click beside it to close.
+fn zoom_window(ctx: &egui::Context) {
+    let Some(mut z) = ctx.data(|d| d.get_temp::<Zoomed>(zoom_id())) else { return };
+    let screen = ctx.content_rect();
+    let avail = (screen.size() * 0.9 - vec2(32.0, 80.0)).max(vec2(200.0, 150.0));
+    let fit = (avail.x / z.diagram.size.x).min(avail.y / z.diagram.size.y).clamp(0.05, 4.0);
+    let mut close = false;
+    let resp = egui::Modal::new(egui::Id::new("mermaid_zoom_modal")).show(ctx, |ui| {
+        let scale = z.zoom.unwrap_or(fit);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(tr("Mermaid diagram")).strong());
+            ui.label(format!("{:.0} %", scale * 100.0));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if rc_kit::theme::icon_button(ui, rc_kit::ico::CLOSE, true, tr("Close")).clicked() {
+                    close = true;
+                }
+                if ui.button("+").on_hover_text(tr("Zoom In")).clicked() {
+                    z.zoom = Some((scale * 1.25).min(8.0));
+                }
+                if ui.button("−").on_hover_text(tr("Zoom Out")).clicked() {
+                    z.zoom = Some((scale / 1.25).max(0.05));
+                }
+                if ui.button("100 %").clicked() {
+                    z.zoom = Some(1.0);
+                }
+                if ui.button(tr("Fit")).clicked() {
+                    z.zoom = None;
+                }
+            });
+        });
+        ui.separator();
+        // One size for the window whatever the zoom: its buttons stay where they are.
+        ui.set_width(avail.x);
+        egui::ScrollArea::both()
+            .id_salt("mermaid_zoom_scroll")
+            .min_scrolled_width(avail.x)
+            .min_scrolled_height(avail.y)
+            .max_width(avail.x)
+            .max_height(avail.y)
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                let size = z.diagram.size * scale;
+                // Smaller than the window: centred.
+                let pad = ((avail - size) / 2.0).max(egui::Vec2::ZERO);
+                ui.add_space(pad.y);
+                ui.horizontal(|ui| {
+                    ui.add_space(pad.x);
+                    let image = ui.add(egui::Image::new(z.diagram.uri.as_str()).fit_to_exact_size(size).sense(egui::Sense::drag()));
+                    if image.dragged() {
+                        ui.scroll_with_delta(image.drag_delta());
+                    }
+                });
+            });
+        // ⌘/Ctrl+wheel and pinch zoom.
+        let factor = ui.input(|i| i.zoom_delta());
+        if factor != 1.0 {
+            z.zoom = Some((scale * factor).clamp(0.05, 8.0));
+        }
+    });
+    if close || resp.should_close() {
+        ctx.data_mut(|d| d.remove::<Zoomed>(zoom_id()));
+    } else {
+        ctx.data_mut(|d| d.insert_temp(zoom_id(), z));
+    }
 }
 
 /// The rendered page of document `idx` in `rect`. Returns whether it was clicked.
@@ -121,7 +258,7 @@ pub fn preview(app: &mut DotCraftApp, ui: &mut Ui, idx: usize, rect: Rect) -> bo
     if doc.md_view == Some(MdView::Split) {
         ui.painter().vline(rect.left() - 0.5, rect.y_range(), egui::Stroke::new(1.0, p.island_border));
     }
-    let text = with_mermaid(ui.ctx(), &doc.editor.buffer.rope().to_string(), p.dark);
+    let parts = split_mermaid(ui.ctx(), &doc.editor.buffer.rope().to_string(), p.dark);
     // Relative images (`![](docs/shot.png)`) load from the file's folder.
     let base = doc.path.parent().map(|d| format!("file://{}/", d.display())).unwrap_or_default();
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt(("md_preview", id)));
@@ -149,7 +286,16 @@ pub fn preview(app: &mut DotCraftApp, ui: &mut Ui, idx: usize, rect: Rect) -> bo
     let out = area.show(&mut child, |ui| {
         egui::Frame::new().inner_margin(egui::Margin::symmetric(28, 20)).show(ui, |ui| {
             ui.set_width(width.max(100.0));
-            egui_commonmark::CommonMarkViewer::new().default_implicit_uri_scheme(base).max_image_width(Some(width.max(100.0) as usize)).show(ui, md_cache, &text);
+            for (k, part) in parts.iter().enumerate() {
+                match part {
+                    Part::Markdown(text) => {
+                        ui.push_id(k, |ui| {
+                            egui_commonmark::CommonMarkViewer::new().default_implicit_uri_scheme(base.clone()).max_image_width(Some(width.max(100.0) as usize)).show(ui, md_cache, text);
+                        });
+                    }
+                    Part::Diagram(d) => diagram(ui, d, width.max(100.0)),
+                }
+            }
         });
     });
     // Text selected in the page was copied while it was drawn: the editor beside it must not
@@ -157,6 +303,7 @@ pub fn preview(app: &mut DotCraftApp, ui: &mut Ui, idx: usize, rect: Rect) -> bo
     if ui.ctx().with_plugin::<egui::text_selection::LabelSelectionState, _>(|s| s.has_selection()).unwrap_or(false) {
         ui.ctx().input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Copy | egui::Event::Cut)));
     }
+    zoom_window(ui.ctx());
     let max = (out.content_size.y - out.inner_rect.height()).max(0.0);
     ui.data_mut(|d| d.insert_temp(key, (Some(frac), max)));
     ui.input(|i| i.pointer.primary_pressed() && i.pointer.interact_pos().is_some_and(|p| rect.contains(p)))
@@ -282,6 +429,15 @@ mod tests {
     #[test]
     fn mermaid_blocks_become_images_and_errors_stay_as_code() {
         let ctx = egui::Context::default();
+        let with_mermaid = |ctx: &egui::Context, text: &str, dark: bool| -> String {
+            split_mermaid(ctx, text, dark)
+                .into_iter()
+                .map(|p| match p {
+                    Part::Markdown(m) => m,
+                    Part::Diagram(d) => format!("![Mermaid diagram]({})\n", d.uri),
+                })
+                .collect()
+        };
         let text = "# Modules\n\n```mermaid\nflowchart LR\n  a[\"00 platform\"] --> b[\"10 tenancy\"]\n```\n\nAfter.\n\n~~~ mermaid\nnot a diagram at all\n~~~\n\n```sql\nselect 1;\n```\n";
         let page = with_mermaid(&ctx, text, true);
         let uri = page.lines().find_map(|l| l.strip_prefix("![Mermaid diagram](").and_then(|r| r.strip_suffix(')'))).expect("an image").to_string();
@@ -293,6 +449,42 @@ mod tests {
         // The same source is rendered once.
         assert_eq!(with_mermaid(&ctx, text, true), page);
         assert_eq!(with_mermaid(&ctx, "no diagrams", false), "no diagrams");
+    }
+
+    #[test]
+    fn a_click_on_a_diagram_enlarges_it() {
+        use egui_kittest::kittest::Queryable;
+        let _lock = crate::screens::HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("modules.md");
+        std::fs::write(&path, "# Modules\n\n```mermaid\nflowchart LR\n  a[\"00 platform\"] --> b[\"10 tenancy\"] --> c[\"20 clients\"]\n```\n\n- after the diagram\n").unwrap();
+        let mut app = crate::screens::test_app(home.path(), true);
+        app.open_file(&path);
+        app.docs.active_doc_mut().unwrap().md_view = Some(MdView::Preview);
+        let mut h = crate::screens::harness(app, egui::vec2(1280.0, 800.0));
+        h.run_steps(3);
+        assert!(h.query_by_label("after the diagram").is_some(), "the page goes on after the diagram");
+        let zoomed = |h: &egui_kittest::Harness<'static, crate::app::DotCraftApp>| h.ctx.data(|d| d.get_temp::<Zoomed>(zoom_id()));
+        assert!(zoomed(&h).is_none());
+        h.get_by_label(tr("Mermaid diagram")).click();
+        h.run_steps(3);
+        let z = zoomed(&h).expect("the enlarged diagram");
+        assert_eq!(z.zoom, None, "fits the window first");
+        h.get_by_label("+").click();
+        h.run_steps(2);
+        let zoom = zoomed(&h).unwrap().zoom.expect("zoomed in");
+        h.get_by_label("+").click();
+        h.run_steps(2);
+        assert!(zoomed(&h).unwrap().zoom.unwrap() > zoom);
+        h.get_by_label("100 %").click();
+        h.run_steps(2);
+        assert_eq!(zoomed(&h).unwrap().zoom, Some(1.0));
+        h.get_by_label(tr("Fit")).click();
+        h.run_steps(2);
+        assert_eq!(zoomed(&h).unwrap().zoom, None);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        assert!(zoomed(&h).is_none(), "Esc closes it");
     }
 
     #[test]
@@ -325,5 +517,12 @@ mod screens {
             std::thread::sleep(std::time::Duration::from_millis(30));
         }
         h.render().unwrap().save(out.join("markdown-mermaid-dark.png")).unwrap();
+        use egui_kittest::kittest::Queryable;
+        h.get_by_label(tr("Mermaid diagram")).click();
+        for _ in 0..10 {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(30));
+        }
+        h.render().unwrap().save(out.join("markdown-mermaid-zoom-dark.png")).unwrap();
     }
 }

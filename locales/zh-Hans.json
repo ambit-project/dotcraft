@@ -1817,6 +1817,8 @@
   "markdown-mermaid": {
     "Mermaid diagram": "Mermaid 图",
     "Mermaid: {error}": "Mermaid：{error}",
-    "The diagram could not be drawn": "无法绘制该图"
+    "The diagram could not be drawn": "无法绘制该图",
+    "Click to enlarge": "点击放大",
+    "Fit": "适应"
   }
 }

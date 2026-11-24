@@ -1817,6 +1817,8 @@
   "markdown-mermaid": {
     "Mermaid diagram": "Mermaid-Diagramm",
     "Mermaid: {error}": "Mermaid: {error}",
-    "The diagram could not be drawn": "Das Diagramm konnte nicht gezeichnet werden"
+    "The diagram could not be drawn": "Das Diagramm konnte nicht gezeichnet werden",
+    "Click to enlarge": "Zum Vergrößern klicken",
+    "Fit": "Einpassen"
   }
 }

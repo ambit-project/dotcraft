@@ -1817,6 +1817,8 @@
   "markdown-mermaid": {
     "Mermaid diagram": "Mermaid 図",
     "Mermaid: {error}": "Mermaid: {error}",
-    "The diagram could not be drawn": "図を描画できませんでした"
+    "The diagram could not be drawn": "図を描画できませんでした",
+    "Click to enlarge": "クリックして拡大",
+    "Fit": "全体表示"
   }
 }
