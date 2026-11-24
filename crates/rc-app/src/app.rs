@@ -2009,6 +2009,25 @@ impl DotCraftApp {
 
     // ------------------------------------------------------------------ explorer actions
 
+/// Run or Debug from a project's context menu: selects the project's run configuration (the
+    /// selected one when it belongs to the project, otherwise its first) and starts it.
+    fn run_project(&mut self, ctx: &Context, project: &Path, debug: bool) {
+        let same = |p: &Path| p == project || dunce::canonicalize(p).ok().is_some_and(|c| dunce::canonicalize(project).ok().is_some_and(|q| q == c));
+        let of_project = |c: &RunConfig| matches!(&c.kind, ConfigKind::App { project: p, .. } if same(p));
+        let index = Some(self.runner.selected)
+            .filter(|&i| self.runner.configs.get(i).is_some_and(&of_project))
+            .or_else(|| self.runner.configs.iter().position(&of_project));
+        let Some(index) = index else {
+            self.notify(tr("This project has no run configuration"), false);
+            return;
+        };
+        if self.runner.selected != index {
+            self.runner.selected = index;
+            self.session_dirty = true;
+        }
+        self.run_ide_action(ctx, if debug { Action::Debug } else { Action::Run });
+    }
+
     pub fn handle_explorer(&mut self, ctx: &Context, actions: Vec<ExplorerAction>) {
         for a in actions {
             match a {
@@ -2042,6 +2061,18 @@ impl DotCraftApp {
                 }
                 ExplorerAction::EfCore(project, op) => self.ef_dialog(op, Some(project)),
                 ExplorerAction::Publish(project) => self.publish_project_dialog(Some(&project)),
+                ExplorerAction::Build(target, action) => {
+                    for path in self.save_all_docs() { self.continuous.note_saved(&path); }
+                    self.godot_debug_build = None;
+                    let outs = self.runner.build(&target, action);
+                    crate::ui::run_windows::handle_outputs(self, outs);
+                }
+                ExplorerAction::RunProject(project, debug) => self.run_project(ctx, &project, debug),
+                ExplorerAction::RunTests(target) => {
+                    self.save_all_docs();
+                    let outs = self.runner.run_tests(&target, None);
+                    crate::ui::run_windows::handle_outputs(self, outs);
+                }
                 ExplorerAction::ManagePackages(project) => {
                     self.nuget.focus_project(&project);
                     self.dock.show(ToolWindow::Nuget);

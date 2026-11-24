@@ -1,5 +1,10 @@
 //! Test discovery and runs for xUnit, NUnit and MSTest (VSTest).
 //!
+//! Repositories that opt `dotnet test` into Microsoft.Testing.Platform in `global.json`
+//! (`"test": { "runner": "Microsoft.Testing.Platform" }`, .NET 10+) are run with the
+//! platform's options instead of VSTest loggers: a TRX report (`--report-xunit-trx` for
+//! xUnit v3, `--report-trx` otherwise) and detailed console output for progress.
+//!
 //! A run builds the target once, then runs `dotnet test --no-build` for every test project
 //! in parallel, each with its own TRX file (one shared `LogFileName` would be overwritten by
 //! every project). Progress comes from the console logger; final results from the TRX files.
@@ -254,21 +259,66 @@ pub async fn run_tests(dotnet: &Dotnet, req: &TestRequest, cancel: &CancelToken,
     Ok(result)
 }
 
+/// Whether `dotnet test` runs `project` with Microsoft.Testing.Platform: the nearest
+/// `global.json` above it sets `test.runner` to `Microsoft.Testing.Platform`.
+pub fn uses_testing_platform(project: &Path) -> bool {
+    let start = if project.is_dir() { project } else { project.parent().unwrap_or(project) };
+    let Some(file) = start.ancestors().map(|d| d.join("global.json")).find(|f| f.is_file()) else { return false };
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.pointer("/test/runner").and_then(|r| r.as_str()).map(|r| r.eq_ignore_ascii_case("Microsoft.Testing.Platform")))
+        .unwrap_or(false)
+}
+
+/// The `dotnet test` arguments after `test` for one project.
+fn test_args(project: &Path, req: &TestRequest, dir: &Path, trx_name: &str, platform: bool) -> Vec<std::ffi::OsString> {
+    let mut args: Vec<std::ffi::OsString> = Vec::new();
+    let mut push = |a: &dyn AsRef<std::ffi::OsStr>| args.push(a.as_ref().to_os_string());
+    if platform {
+        push(&"--project");
+    }
+    push(&project);
+    push(&"--no-build");
+    push(&"-c");
+    push(&req.configuration);
+    if let Some(tf) = &req.target_framework {
+        push(&"-f");
+        push(tf);
+    }
+    push(&"--results-directory");
+    push(&dir);
+    if platform {
+        // xUnit v3 writes TRX itself; MSTest and NUnit through the TrxReport extension.
+        let xunit3 = ProjectInfo::load(project).is_ok_and(|i| i.packages.iter().any(|p| p.name.to_ascii_lowercase().starts_with("xunit.v3")));
+        let report = if xunit3 { "--report-xunit-trx" } else { "--report-trx" };
+        push(&report);
+        push(&format!("{report}-filename"));
+        push(&trx_name);
+        for a in ["--output", "Detailed", "--no-ansi", "--no-progress"] {
+            push(&a);
+        }
+    } else {
+        push(&"--logger");
+        push(&format!("trx;LogFileName={trx_name}"));
+        push(&"--logger");
+        push(&"console;verbosity=normal");
+    }
+    // Both runners take the VSTest filter syntax.
+    if let Some(f) = &req.filter {
+        push(&"--filter");
+        push(&f.expression());
+    }
+    args
+}
+
 async fn run_project(dotnet: &Dotnet, project: &Path, req: &TestRequest, dir: &Path, cancel: &CancelToken, tx: &mpsc::UnboundedSender<TestEvent>) -> ProjectRun {
     let _ = tx.send(TestEvent::ProjectStarted { project: project.to_path_buf() });
     let trx_name = "results.trx";
+    let platform = uses_testing_platform(project);
     let mut cmd = dotnet.command();
-    cmd.arg("test").arg(project).arg("--no-build").args(["-c", &req.configuration]);
-    if let Some(tf) = &req.target_framework {
-        cmd.args(["-f", tf]);
-    }
-    cmd.arg("--logger").arg(format!("trx;LogFileName={trx_name}"));
-    cmd.arg("--logger").arg("console;verbosity=normal");
-    cmd.arg("--results-directory").arg(dir);
-    if let Some(f) = &req.filter {
-        cmd.arg("--filter").arg(f.expression());
-    }
-    if req.debug_host {
+    cmd.arg("test").args(test_args(project, req, dir, trx_name, platform));
+    if req.debug_host && !platform {
         cmd.env("VSTEST_HOST_DEBUG", "1");
     }
     if let Some(d) = project.parent() {
@@ -302,21 +352,30 @@ async fn run_project(dotnet: &Dotnet, project: &Path, req: &TestRequest, dir: &P
     run
 }
 
-/// `  Passed Ns.C.M [12 ms]` → (Passed, `Ns.C.M`, `12 ms`).
+/// `  Passed Ns.C.M [12 ms]` → (Passed, `Ns.C.M`, `12 ms`); Microsoft.Testing.Platform
+/// prints `passed Ns.C.M (12ms)`.
 pub fn parse_progress_line(line: &str) -> Option<(TestOutcome, String, Option<String>)> {
     let l = crate::process::strip_ansi(line);
     let l = l.trim();
-    let (outcome, rest) = [("Passed ", TestOutcome::Passed), ("Failed ", TestOutcome::Failed), ("Skipped ", TestOutcome::Skipped)]
-        .into_iter()
-        .find_map(|(p, o)| l.strip_prefix(p).map(|r| (o, r)))?;
+    let (outcome, rest, platform) = [
+        ("Passed ", TestOutcome::Passed, false),
+        ("Failed ", TestOutcome::Failed, false),
+        ("Skipped ", TestOutcome::Skipped, false),
+        ("passed ", TestOutcome::Passed, true),
+        ("failed ", TestOutcome::Failed, true),
+        ("skipped ", TestOutcome::Skipped, true),
+    ]
+    .into_iter()
+    .find_map(|(p, o, platform)| l.strip_prefix(p).map(|r| (o, r, platform)))?;
     let rest = rest.trim();
     if rest.is_empty() || rest.starts_with(':') || rest.starts_with('!') {
         return None; // "Passed: 4" summaries, "Failed!  - Failed: 1 …"
     }
-    if let Some(body) = rest.strip_suffix(']')
-        && let Some(open) = body.rfind(" [")
+    let (close, open) = if platform { (')', " (") } else { (']', " [") };
+    if let Some(body) = rest.strip_suffix(close)
+        && let Some(open_at) = body.rfind(open)
     {
-        return Some((outcome, body[..open].to_string(), Some(body[open + 2..].to_string())));
+        return Some((outcome, body[..open_at].to_string(), Some(body[open_at + 2..].to_string())));
     }
     Some((outcome, rest.to_string(), None))
 }
@@ -379,6 +438,33 @@ mod tests {
         assert_eq!(TestFilter::Class("A.B".into()).expression(), "FullyQualifiedName~A.B.");
         assert_eq!(escape_filter_value("M(1,!x)"), "M\\(1,\\!x\\)");
         assert_eq!(TestFilter::Raw("Category=Fast".into()).expression(), "Category=Fast");
+    }
+
+    #[test]
+    fn parses_testing_platform_progress() {
+        assert_eq!(parse_progress_line("passed Demo.CalcTests.Data(x: 1) (5ms)"), Some((TestOutcome::Passed, "Demo.CalcTests.Data(x: 1)".into(), Some("5ms".into()))));
+        assert_eq!(parse_progress_line("failed Demo.CalcTests.Fails (2ms)"), Some((TestOutcome::Failed, "Demo.CalcTests.Fails".into(), Some("2ms".into()))));
+        assert_eq!(parse_progress_line("  failed: 1"), None);
+    }
+
+    #[test]
+    fn testing_platform_runs_use_its_options() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("tests/App.Tests/App.Tests.csproj");
+        std::fs::create_dir_all(project.parent().unwrap()).unwrap();
+        std::fs::write(&project, r#"<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="xunit.v3" /></ItemGroup></Project>"#).unwrap();
+        assert!(!uses_testing_platform(&project));
+        std::fs::write(root.path().join("global.json"), r#"{"sdk":{"version":"11.0.0"},"test":{"runner":"Microsoft.Testing.Platform"}}"#).unwrap();
+        assert!(uses_testing_platform(&project));
+        let mut req = TestRequest::new(&project);
+        req.filter = Some(TestFilter::Class("App.Tests.OrderTests".into()));
+        let args: Vec<String> = test_args(&project, &req, Path::new("/r"), "results.trx", true).iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert_eq!(args[0], "--project");
+        assert!(args.windows(2).any(|w| w == ["--report-xunit-trx-filename", "results.trx"]), "{args:?}");
+        assert!(args.windows(2).any(|w| w == ["--filter", "FullyQualifiedName~App.Tests.OrderTests."]), "{args:?}");
+        assert!(!args.iter().any(|a| a == "--logger"), "{args:?}");
+        let vstest: Vec<String> = test_args(&project, &req, Path::new("/r"), "results.trx", false).iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        assert!(vstest.iter().any(|a| a == "--logger") && !vstest.iter().any(|a| a == "--project"));
     }
 
     #[test]

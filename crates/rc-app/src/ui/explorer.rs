@@ -91,6 +91,12 @@ pub enum ExplorerAction {
     MigrateToCpm,
     /// Add New Project to this solution.
     AddProject(PathBuf),
+    /// Build, Rebuild, Clean or Restore this solution or project.
+    Build(PathBuf, rc_dotnet::BuildAction),
+    /// Run (or debug, when true) this executable project with its first run configuration.
+    RunProject(PathBuf, bool),
+    /// Run the tests of this solution or test project.
+    RunTests(PathBuf),
     Collapse,
     LocateActive,
     /// Show All Files on/off (kept in the session).
@@ -537,9 +543,17 @@ pub fn show(ui: &mut Ui, state: &mut ExplorerState, solution: Option<&Solution>,
             if resp.secondary_clicked() {
                 context = Some((i, resp.clone()));
             }
-            let ef = matches!(&rows[i].kind, NodeKind::Project(p) if state.projects.get(p).is_some_and(rc_dotnet::ef::uses_ef));
+            let info = match &rows[i].kind {
+                NodeKind::Project(p) => state.projects.get(p),
+                _ => None,
+            };
+            let kind = ProjectMenu {
+                ef: info.is_some_and(rc_dotnet::ef::uses_ef),
+                executable: info.is_some_and(|i| i.is_executable() && !i.is_godot() && !i.is_test),
+                test: info.is_some_and(|i| i.is_test),
+            };
             resp.context_menu(|ui| {
-                context_menu(ui, &rows[i], solution.map(|s| s.path.as_path()), ef, &mut actions);
+                context_menu(ui, &rows[i], solution.map(|s| s.path.as_path()), kind, &mut actions);
             });
         }
         // Empty space below the rows clears focus to the tree too.
@@ -632,7 +646,32 @@ fn row_path(r: &Row) -> Option<PathBuf> {
     }
 }
 
-fn context_menu(ui: &mut Ui, row: &Row, solution: Option<&Path>, ef: bool, actions: &mut Vec<ExplorerAction>) {
+/// What a project's context menu offers besides the common items.
+#[derive(Clone, Copy, Default)]
+struct ProjectMenu {
+    ef: bool,
+    executable: bool,
+    test: bool,
+}
+
+/// Build › items of a solution or project (Rider's Build, Rebuild, Clean, Restore).
+fn build_items(ui: &mut Ui, target: &Path, solution: bool, actions: &mut Vec<ExplorerAction>) {
+    use rc_dotnet::BuildAction;
+    let items = if solution {
+        [(tr("Build Solution"), ico::BUILD, BuildAction::Build), (tr("Rebuild Solution"), ico::REBUILD, BuildAction::Rebuild), (tr("Clean Solution"), ico::DELETE, BuildAction::Clean)]
+    } else {
+        [(tr("Build Project"), ico::BUILD, BuildAction::Build), (tr("Rebuild Project"), ico::REBUILD, BuildAction::Rebuild), (tr("Clean Project"), ico::DELETE, BuildAction::Clean)]
+    };
+    for (label, icon, action) in items.into_iter().chain([(tr("Restore NuGet Packages"), ico::DOWNLOAD, BuildAction::Restore)]) {
+        if theme::menu_item(ui, Some(icon), label, false).clicked() {
+            actions.push(ExplorerAction::Build(target.to_path_buf(), action));
+            ui.close();
+        }
+    }
+}
+
+fn context_menu(ui: &mut Ui, row: &Row, solution: Option<&Path>, project: ProjectMenu, actions: &mut Vec<ExplorerAction>) {
+    let ef = project.ef;
     ui.set_min_width(220.0);
     if matches!(&row.kind, NodeKind::Scratches) {
         if theme::menu_item(ui, Some(ico::NEW_FILE), tr("New Scratch File…"), false).clicked() {
@@ -642,6 +681,12 @@ fn context_menu(ui: &mut Ui, row: &Row, solution: Option<&Path>, ef: bool, actio
         return;
     }
     if let (NodeKind::Solution, Some(sln)) = (&row.kind, solution) {
+        build_items(ui, sln, true, actions);
+        if theme::menu_item(ui, Some(ico::RUN_ALL), tr("Run All Tests"), false).clicked() {
+            actions.push(ExplorerAction::RunTests(sln.to_path_buf()));
+            ui.close();
+        }
+        ui.separator();
         if theme::menu_item(ui, Some(ico::ADD), tr("Add New Project…"), false).clicked() {
             actions.push(ExplorerAction::AddProject(sln.to_path_buf()));
             ui.close();
@@ -660,6 +705,24 @@ fn context_menu(ui: &mut Ui, row: &Row, solution: Option<&Path>, ef: bool, actio
             ui.close();
         }
         return;
+    }
+    if let NodeKind::Project(p) = &row.kind {
+        build_items(ui, p, false, actions);
+        if project.executable {
+            if theme::menu_item(ui, Some(ico::RUN), tr("Run"), false).clicked() {
+                actions.push(ExplorerAction::RunProject(p.clone(), false));
+                ui.close();
+            }
+            if theme::menu_item(ui, Some(ico::DEBUG), tr("Debug"), false).clicked() {
+                actions.push(ExplorerAction::RunProject(p.clone(), true));
+                ui.close();
+            }
+        }
+        if project.test && theme::menu_item(ui, Some(ico::RUN_ALL), tr("Run Tests"), false).clicked() {
+            actions.push(ExplorerAction::RunTests(p.clone()));
+            ui.close();
+        }
+        ui.separator();
     }
     if let NodeKind::Project(p) = &row.kind
         && theme::menu_item(ui, Some(ico::EDIT), tr("Edit Project File"), false).clicked()
@@ -966,5 +1029,60 @@ mod template_picker_tests {
         harness.input_mut().events.push(egui::Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() });
         harness.run_steps(2);
         assert!(harness.state().1.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod project_menu_tests {
+    use super::*;
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    fn menu(kind: NodeKind, project: ProjectMenu) -> Harness<'static, Vec<ExplorerAction>> {
+        let row = Row { key: "row".into(), kind, depth: 0, label: "row".into(), secondary: String::new(), icon: ico::PROJECT, expandable: false };
+        Harness::new_ui_state(move |ui, actions: &mut Vec<ExplorerAction>| context_menu(ui, &row, Some(Path::new("/src/App.slnx")), project, actions), Vec::new())
+    }
+
+    #[test]
+    fn solution_menu_builds_and_tests_the_solution() {
+        let mut h = menu(NodeKind::Solution, ProjectMenu::default());
+        h.run();
+        for label in ["Build Solution", "Rebuild Solution", "Clean Solution", "Restore NuGet Packages", "Run All Tests"] {
+            h.get_by_label(tr(label));
+        }
+        h.get_by_label(tr("Rebuild Solution")).click();
+        h.run();
+        h.get_by_label(tr("Run All Tests")).click();
+        h.run();
+        let sln = PathBuf::from("/src/App.slnx");
+        assert_eq!(h.state(), &[ExplorerAction::Build(sln.clone(), rc_dotnet::BuildAction::Rebuild), ExplorerAction::RunTests(sln)]);
+    }
+
+    #[test]
+    fn api_and_worker_projects_build_run_and_debug() {
+        let api = PathBuf::from("/src/Api/Api.csproj");
+        let mut h = menu(NodeKind::Project(api.clone()), ProjectMenu { executable: true, ..Default::default() });
+        h.run();
+        assert!(h.query_by_label(tr("Run Tests")).is_none());
+        h.get_by_label(tr("Build Project")).click();
+        h.run();
+        h.get_by_label(tr("Debug")).click();
+        h.run();
+        assert_eq!(h.state(), &[ExplorerAction::Build(api.clone(), rc_dotnet::BuildAction::Build), ExplorerAction::RunProject(api, true)]);
+    }
+
+    #[test]
+    fn libraries_build_without_run_and_test_projects_run_tests() {
+        let lib = PathBuf::from("/src/Lib/Lib.csproj");
+        let mut h = menu(NodeKind::Project(lib.clone()), ProjectMenu::default());
+        h.run();
+        h.get_by_label(tr("Clean Project"));
+        assert!(h.query_by_label(tr("Run")).is_none() && h.query_by_label(tr("Debug")).is_none() && h.query_by_label(tr("Run Tests")).is_none());
+
+        let tests = PathBuf::from("/src/Lib.Tests/Lib.Tests.csproj");
+        let mut h = menu(NodeKind::Project(tests.clone()), ProjectMenu { test: true, ..Default::default() });
+        h.run();
+        h.get_by_label(tr("Run Tests")).click();
+        h.run();
+        assert_eq!(h.state(), &[ExplorerAction::RunTests(tests)]);
     }
 }

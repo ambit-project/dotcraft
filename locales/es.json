@@ -1778,5 +1778,14 @@
     "C# code formatter": "Formateador de código C#",
     "Reformat C# files with CSharpier on save": "Reformatear archivos C# con CSharpier al guardar",
     "CSharpier 1.0 or later: a local tool from the repository's dotnet-tools.json, the CSharpier executable above, or a global tool (dotnet tool install -g csharpier).": "CSharpier 1.0 o posterior: una herramienta local del dotnet-tools.json del repositorio, el ejecutable de CSharpier de arriba o una herramienta global (dotnet tool install -g csharpier)."
+  },
+  "explorer-build": {
+    "Build Project": "Compilar proyecto",
+    "Rebuild Project": "Recompilar proyecto",
+    "Clean Project": "Limpiar proyecto",
+    "This project has no run configuration": "Este proyecto no tiene configuración de ejecución"
+  },
+  "testing-platform": {
+    "Debugging tests is not available yet when global.json runs tests with Microsoft.Testing.Platform; run them instead": "La depuración de pruebas aún no está disponible cuando global.json ejecuta las pruebas con Microsoft.Testing.Platform; ejecútalas en su lugar"
   }
 }

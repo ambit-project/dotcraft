@@ -1778,5 +1778,14 @@
     "C# code formatter": "C# 代码格式化程序",
     "Reformat C# files with CSharpier on save": "保存时使用 CSharpier 重新格式化 C# 文件",
     "CSharpier 1.0 or later: a local tool from the repository's dotnet-tools.json, the CSharpier executable above, or a global tool (dotnet tool install -g csharpier).": "CSharpier 1.0 或更高版本：仓库 dotnet-tools.json 中的本地工具、上方的 CSharpier 可执行文件或全局工具（dotnet tool install -g csharpier）。"
+  },
+  "explorer-build": {
+    "Build Project": "生成项目",
+    "Rebuild Project": "重新生成项目",
+    "Clean Project": "清理项目",
+    "This project has no run configuration": "此项目没有运行配置"
+  },
+  "testing-platform": {
+    "Debugging tests is not available yet when global.json runs tests with Microsoft.Testing.Platform; run them instead": "当 global.json 使用 Microsoft.Testing.Platform 运行测试时，暂不支持调试测试；请改为运行测试"
   }
 }
