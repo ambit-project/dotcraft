@@ -57,6 +57,10 @@ DotCraft talks to the same C# language server as Visual Studio Code's C# extensi
   </tr>
 </table>
 
+### Formatting
+
+**Reformat Code** (⌥⌘L / Ctrl+Alt+L) formats C# with the Roslyn language server or with [CSharpier](https://csharpier.com) (1.0 or later). **Settings › Tools › C# code formatter** chooses: by default CSharpier is used when the repository uses it (CSharpier in its `dotnet-tools.json` or a `.csharpierrc`/`.csharpierignore`), and Roslyn otherwise. DotCraft runs the local tool (`dotnet csharpier`), the executable set in Settings › Tools, or a global `csharpier`, piping the file with `--stdin-path` so its options and ignore files apply. CSharpier formats whole files; **Reformat C# files with CSharpier on save** formats them on Save and Save All. JSON and XML are formatted by DotCraft itself.
+
 ### Run, test and debug
 
 Run configurations are created from the solution: one per executable project and launch profile, plus the tests of each test project. Build errors go to the Problems window with links to the code; test results show in a tree and as gutter icons next to each test.
@@ -127,7 +131,7 @@ scripts/bundle.sh --universal --dmg --zip
 scripts/bundle.sh --windows
 ```
 
-The first builds `DotCraft.app`, a universal `.dmg` and a `.zip` in `target/release`; the second cross-compiles the Windows x64 and ARM64 executables with [cargo-xwin](https://github.com/rust-cross/cargo-xwin) and zips them. Linux builds come from the `Linux release build` workflow (`.github/workflows/linux.yml`), which runs on Ubuntu 22.04 when a release is published and attaches `DotCraft-<version>-linux-x64.tar.gz` and `-linux-arm64.tar.gz`; on Linux, `cargo build --release` is enough. Application icons are generated from `assets/icon.svg` with `scripts/make_icon.py`.
+The first builds `DotCraft.app`, a universal `.dmg` and a `.zip` in `target/release`; the second cross-compiles the Windows x64 and ARM64 executables with [cargo-xwin](https://github.com/rust-cross/cargo-xwin) and zips them. Linux builds come from the `Linux release build` workflow (`.github/workflows/linux.yml`), which runs on Ubuntu 22.04 when a release is published and attaches `DotCraft-<version>-linux-x64.tar.gz` and `-linux-arm64.tar.gz`; on Linux, `cargo build --release` is enough. On Debian and Ubuntu, `scripts/deb.sh` builds `target/release/dotcraft_<version>_<arch>.deb` (the binary, desktop entry and icons; `--install` installs it with apt). Application icons are generated from `assets/icon.svg` with `scripts/make_icon.py`.
 
 ### Tests
 

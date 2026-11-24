@@ -23,6 +23,18 @@ pub enum KeymapChoice {
     VsCode,
 }
 
+/// What Reformat Code uses for C# files.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CSharpFormatter {
+    /// CSharpier when the repository uses it (a local tool or a `.csharpierrc`), else Roslyn.
+    #[default]
+    Auto,
+    /// The Roslyn language server (`textDocument/formatting`).
+    Roslyn,
+    /// Always CSharpier.
+    CSharpier,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -61,6 +73,12 @@ pub struct Settings {
     /// Explicit path to the Roslyn language server DLL or executable.
     pub roslyn_path: Option<PathBuf>,
     pub netcoredbg_path: Option<PathBuf>,
+    /// Formatter of Reformat Code in C# files.
+    pub csharp_formatter: CSharpFormatter,
+    /// Explicit path to the `csharpier` executable (otherwise a local tool or the global one).
+    pub csharpier_path: Option<PathBuf>,
+    /// Reformat C# files with CSharpier when they are saved with Save or Save All.
+    pub csharpier_on_save: bool,
     /// Explicit path to a Godot 4 .NET editor (otherwise GODOT4/GODOT, PATH and install folders).
     pub godot_path: Option<PathBuf>,
     /// Unity editor for Open in Unity Editor: an executable (or `Unity.app`) used for every
@@ -135,6 +153,9 @@ impl Default for Settings {
             dotnet_path: None,
             roslyn_path: None,
             netcoredbg_path: None,
+            csharp_formatter: CSharpFormatter::Auto,
+            csharpier_path: None,
+            csharpier_on_save: false,
             godot_path: None,
             unity_editor_path: None,
             recent_workspaces: Vec::new(),

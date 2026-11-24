@@ -386,6 +386,7 @@ fn settings_tools(ui: &mut Ui, draft: &mut Settings, app: &mut DotCraftApp) {
         (tr("Godot .NET executable"), &mut draft.godot_path, Engine::Godot),
         (tr("Roslyn language server"), &mut draft.roslyn_path, Engine::None),
         (tr("netcoredbg debugger"), &mut draft.netcoredbg_path, Engine::None),
+        (tr("CSharpier executable"), &mut draft.csharpier_path, Engine::None),
         (tr("Unity Editor (executable or editors folder)"), &mut draft.unity_editor_path, Engine::Unity),
     ] {
         let label_response = ui.label(label);
@@ -426,6 +427,25 @@ fn settings_tools(ui: &mut Ui, draft: &mut Settings, app: &mut DotCraftApp) {
         }
         ui.add_space(10.0);
     }
+    use rc_core::settings::CSharpFormatter;
+    let formatter_name = |f: CSharpFormatter| match f {
+        CSharpFormatter::Auto => tr("CSharpier when the project uses it, otherwise Roslyn"),
+        CSharpFormatter::Roslyn => tr("Roslyn (language server)"),
+        CSharpFormatter::CSharpier => "CSharpier",
+    };
+    let label = ui.label(tr("C# code formatter"));
+    egui::ComboBox::from_id_salt("csharp_formatter")
+        .width(ui.available_width().min(380.0))
+        .selected_text(formatter_name(draft.csharp_formatter))
+        .show_ui(ui, |ui| {
+            for f in [CSharpFormatter::Auto, CSharpFormatter::Roslyn, CSharpFormatter::CSharpier] {
+                ui.selectable_value(&mut draft.csharp_formatter, f, formatter_name(f));
+            }
+        })
+        .response
+        .labelled_by(label.id);
+    ui.add_enabled(draft.csharp_formatter != CSharpFormatter::Roslyn, egui::Checkbox::new(&mut draft.csharpier_on_save, tr("Reformat C# files with CSharpier on save")));
+    crate::ui::kit::note(ui, tr("CSharpier 1.0 or later: a local tool from the repository's dotnet-tools.json, the CSharpier executable above, or a global tool (dotnet tool install -g csharpier)."));
 }
 
 fn lang_code(l: Lang) -> &'static str {
@@ -1856,7 +1876,7 @@ mod responsive_settings_tests {
                     // Tool rows never spill sideways; rows below the fold must scroll into the page
                     // between the modal's top and the fixed footer.
                     let browse: Vec<egui::Rect> = harness.get_all_by_label(tr("Browse…")).map(|node| node.rect()).collect();
-                    assert_eq!(browse.len(), 5, "every tool row needs a Browse button");
+                    assert_eq!(browse.len(), 6, "every tool row needs a Browse button");
                     for r in &browse {
                         assert!(r.left() >= modal.left() && r.right() <= modal.right(), "tool browse button outside modal at {size:?}: {r:?}");
                     }
@@ -1893,15 +1913,23 @@ mod responsive_settings_tests {
             let start = harness.get(field()).rect();
             let first_browse = harness.get_all_by_label(tr("Browse…")).next().unwrap().rect().center();
             harness.input_mut().events.push(egui::Event::PointerMoved(first_browse));
-            harness.input_mut().events.push(egui::Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Point,
-                delta: vec2(0.0, -1000.0),
-                phase: egui::TouchPhase::Move,
-                modifiers: egui::Modifiers::NONE,
-            });
-            harness.run_steps(20);
-            let rect = harness.get(field()).rect();
             let ok_top = harness.get_by_label(tr("OK")).rect().top();
+            // Scroll until the field is in view; more settings may follow it on the page.
+            for _ in 0..60 {
+                // Clear of the footer's spacing, where the scroll area clips.
+                if harness.get(field()).rect().bottom() + 40.0 <= ok_top {
+                    break;
+                }
+                harness.input_mut().events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -30.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                harness.run_steps(3);
+            }
+            harness.run_steps(5);
+            let rect = harness.get(field()).rect();
             assert!(rect.top() >= modal.top() && rect.bottom() <= ok_top && rect.left() >= modal.left() && rect.right() <= modal.right(), "Unity field hidden at {size:?}: {rect:?} (started at {start:?}, footer at {ok_top})");
             assert!(rect.width() > 60.0, "Unity field too narrow at {size:?}: {rect:?}");
             // Click with real pointer events: a field still clipped by the scroll area would not take focus.

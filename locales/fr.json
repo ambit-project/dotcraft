@@ -1768,5 +1768,15 @@
     "New profile": "Nouveau profil",
     "Profile name": "Nom du profil",
     "Use NAME=value for each environment variable": "Utilisez NOM=valeur pour chaque variable d’environnement"
+  },
+  "csharpier": {
+    "CSharpier is not installed: run dotnet tool install -g csharpier, add it as a local tool, or set its path in Settings › Tools": "CSharpier n'est pas installé : exécutez dotnet tool install -g csharpier, ajoutez-le comme outil local ou indiquez son chemin dans Paramètres › Outils",
+    "CSharpier could not format the file: {error}": "CSharpier n'a pas pu formater le fichier : {error}",
+    "CSharpier executable": "Exécutable CSharpier",
+    "CSharpier when the project uses it, otherwise Roslyn": "CSharpier si le projet l'utilise, sinon Roslyn",
+    "Roslyn (language server)": "Roslyn (serveur de langage)",
+    "C# code formatter": "Formateur de code C#",
+    "Reformat C# files with CSharpier on save": "Reformater les fichiers C# avec CSharpier à l'enregistrement",
+    "CSharpier 1.0 or later: a local tool from the repository's dotnet-tools.json, the CSharpier executable above, or a global tool (dotnet tool install -g csharpier).": "CSharpier 1.0 ou ultérieur : un outil local du dotnet-tools.json du dépôt, l'exécutable CSharpier ci-dessus ou un outil global (dotnet tool install -g csharpier)."
   }
 }
