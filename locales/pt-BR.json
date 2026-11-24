@@ -1842,6 +1842,16 @@
     "What the change does (the --comment)": "O que a alteração faz (o --comment)",
     "New Changeset…": "Novo changeset…",
     "DDL": "DDL",
-    "Data": "Dados"
+    "Data": "Dados",
+    "Module {module} already exists": "O módulo {module} já existe",
+    "Number {number} is taken by {module}": "O número {number} já é de {module}",
+    "Say what the module is for (the comment)": "Diga para que serve o módulo (o comentário)",
+    "The module's name: lower-case letters, digits and underscores, starting with a letter, e.g. invoicing": "Nome do módulo: minúsculas, dígitos e sublinhados, começando por letra, p. ex. invoicing",
+    "The module's number has two digits (its place in the dependency order), e.g. 35": "O número do módulo tem dois dígitos (seu lugar na ordem de dependências), p. ex. 35",
+    "Also the {schema} contract (without a session)": "Também um contrato {schema} (sem sessão)",
+    "Its place in the dependency order: a module uses only modules with a lower number": "Lugar na ordem de dependências: um módulo usa só módulos de número menor",
+    "Module name, e.g. invoicing": "Nome do módulo, p. ex. invoicing",
+    "Schemas owned by {owner}; {api} may use the contract": "Esquemas de {owner}; {api} usa o contrato",
+    "What the module is for (the --comment)": "Para que serve o módulo (o --comment)"
   }
 }

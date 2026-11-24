@@ -832,7 +832,8 @@ impl ChangesetForm {
             _ => (Kind::Ddl, String::new()),
         };
         let module = if db.modules.contains(&module) { module } else { db.modules.first().cloned().unwrap_or_default() };
-        ChangesetForm { db, kind, req: crate::changesets::Request { module, ..Default::default() }, error: None, focus: true }
+        let number = db.next_module_number();
+        ChangesetForm { db, kind, req: crate::changesets::Request { module, number, ..Default::default() }, error: None, focus: true }
     }
 }
 
@@ -862,7 +863,16 @@ fn new_changeset(app: &mut DotCraftApp, ctx: &Context, form: &mut ChangesetForm)
         });
         ui.add_space(8.0);
         let mut first = None;
-        if form.kind.is_routine() {
+        if form.kind == Kind::Module {
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut form.req.number).hint_text("nn").desired_width(36.0)).on_hover_text(tr("Its place in the dependency order: a module uses only modules with a lower number"));
+                first = Some(ui.add(egui::TextEdit::singleline(&mut form.req.name).hint_text(tr("Module name, e.g. invoicing")).desired_width(f32::INFINITY)));
+            });
+            ui.add(egui::TextEdit::multiline(&mut form.req.comment).hint_text(tr("What the module is for (the --comment)")).desired_rows(3).desired_width(f32::INFINITY));
+            let name = form.req.name.trim().to_lowercase();
+            ui.checkbox(&mut form.req.public, trf("Also the {schema} contract (without a session)", &[("schema", &format!("{}_public", if name.is_empty() { "<module>" } else { &name }))]));
+            ui.label(egui::RichText::new(trf("Schemas owned by {owner}; {api} may use the contract", &[("owner", &form.db.owner), ("api", &form.db.api_role())])).size(12.0).color(p.muted));
+        } else if form.kind.is_routine() {
             if form.db.modules.is_empty() {
                 ui.colored_label(p.error, tr("No modules in changelog/modules/ (folders <nn>-<module>, e.g. 00-platform)"));
             } else {
@@ -891,7 +901,7 @@ fn new_changeset(app: &mut DotCraftApp, ctx: &Context, form: &mut ChangesetForm)
             r.request_focus();
             form.focus = false;
         }
-        let ready = !form.req.comment.trim().is_empty() && (!form.kind.is_routine() || !form.req.name.trim().is_empty());
+        let ready = !form.req.comment.trim().is_empty() && (!(form.kind.is_routine() || form.kind == Kind::Module) || !form.req.name.trim().is_empty());
         if ready || !form.req.name.trim().is_empty() || !form.req.comment.trim().is_empty() {
             let text = match target(&form.db, form.kind, &form.req, date) {
                 Ok(path) => shown(&path),
@@ -902,7 +912,8 @@ fn new_changeset(app: &mut DotCraftApp, ctx: &Context, form: &mut ChangesetForm)
         if let Some(e) = &form.error {
             ui.colored_label(p.error, e);
         }
-        let enter = ui.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift) && !form.kind.is_routine();
+        // Enter creates from single-line forms only (routines and modules have a multi-line comment).
+        let enter = ui.input(|i| i.key_pressed(Key::Enter) && !i.modifiers.shift) && !form.kind.is_routine() && form.kind != Kind::Module;
         let (ok, cancel) = buttons(ui, tr("Create"), ready);
         (ok || (enter && ready), cancel)
     });

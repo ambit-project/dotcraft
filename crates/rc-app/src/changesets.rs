@@ -34,10 +34,12 @@ pub enum Kind {
     View,
     Procedure,
     Function,
+    /// Another module: its folder and the DDL changeset of its schemas.
+    Module,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 5] = [Kind::Ddl, Kind::Data, Kind::View, Kind::Procedure, Kind::Function];
+    pub const ALL: [Kind; 6] = [Kind::Ddl, Kind::Data, Kind::View, Kind::Procedure, Kind::Function, Kind::Module];
 
     pub fn title(self) -> &'static str {
         match self {
@@ -46,6 +48,7 @@ impl Kind {
             Kind::View => "View",
             Kind::Procedure => "Procedure",
             Kind::Function => "Function",
+            Kind::Module => "Module",
         }
     }
 
@@ -55,7 +58,7 @@ impl Kind {
 
     fn folder(self) -> &'static str {
         match self {
-            Kind::Ddl => "1-ddl",
+            Kind::Ddl | Kind::Module => "1-ddl",
             Kind::Data => "2-data",
             Kind::View => "views",
             Kind::Procedure => "procedures",
@@ -70,6 +73,7 @@ impl Kind {
             Kind::Function => "function",
             Kind::Ddl => "ddl",
             Kind::Data => "data",
+            Kind::Module => "module",
         }
     }
 }
@@ -213,8 +217,53 @@ pub struct Request {
     pub dev: bool,
     /// Routines: `<nn>-<module>`.
     pub module: String,
-    /// Routines: `name` (in `<module>_app`) or `schema.name`.
+    /// Routines: `name` (in `<module>_app`) or `schema.name`; a module: its name.
     pub name: String,
+    /// A module: its two-digit number (the dependency order).
+    pub number: String,
+    /// A module: also a `<module>_public` contract (callers without a session).
+    pub public: bool,
+}
+
+impl DbProject {
+    /// The API's role: the owner's with `_api` for `_owner`.
+    pub fn api_role(&self) -> String {
+        match self.owner.strip_suffix("_owner") {
+            Some(base) => format!("{base}_api"),
+            None => format!("{}_api", self.owner),
+        }
+    }
+
+    /// A number for the next module: after the highest below 90 (90 and up stay last, like the
+    /// owner module), a multiple of 5 when one is free, else the next free number.
+    pub fn next_module_number(&self) -> String {
+        let used: Vec<u32> = self.modules.iter().filter_map(|m| m.get(..2)?.parse().ok()).collect();
+        let free = |n: &u32| !used.contains(n);
+        let Some(high) = used.iter().copied().filter(|n| *n < 90).max() else { return "10".into() };
+        let after = high + 1..90;
+        let n = after.clone().find(|n| n % 5 == 0 && free(n)).or_else(|| after.clone().find(free)).or_else(|| (0..100).find(free)).unwrap_or(high + 1);
+        format!("{n:02}")
+    }
+}
+
+/// A module's number and name, or why they are not usable.
+fn module_parts(db: &DbProject, req: &Request) -> Result<(String, String), String> {
+    let number = req.number.trim();
+    let name = req.name.trim().to_lowercase();
+    if number.len() != 2 || !number.chars().all(|c| c.is_ascii_digit()) {
+        return Err(tr("The module's number has two digits (its place in the dependency order), e.g. 35").into());
+    }
+    let valid = name.chars().next().is_some_and(|c| c.is_ascii_lowercase()) && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+    if !valid || name.ends_with("_app") || name.ends_with("_internal") || name.ends_with("_public") {
+        return Err(tr("The module's name: lower-case letters, digits and underscores, starting with a letter, e.g. invoicing").into());
+    }
+    if let Some(m) = db.modules.iter().find(|m| m.get(..2) == Some(number)) {
+        return Err(trf("Number {number} is taken by {module}", &[("number", &number), ("module", m)]));
+    }
+    if let Some(m) = db.modules.iter().find(|m| m.get(3..) == Some(name.as_str())) {
+        return Err(trf("Module {module} already exists", &[("module", m)]));
+    }
+    Ok((number.to_string(), name))
 }
 
 /// A created file and where the caret goes in it.
@@ -242,6 +291,12 @@ pub fn routine_name(module: &str, name: &str) -> Result<(String, String), String
 /// The path a request would create (for the form's preview), or why it can't.
 pub fn target(db: &DbProject, kind: Kind, req: &Request, date: (i32, u32, u32)) -> Result<PathBuf, String> {
     let changelog = db.dir.join("changelog");
+    let req = &if kind == Kind::Module {
+        let (_, name) = module_parts(db, req)?;
+        Request { comment: format!("{name} create module"), ..req.clone() }
+    } else {
+        req.clone()
+    };
     if kind.is_routine() {
         if req.module.is_empty() {
             return Err(tr("Pick a module").into());
@@ -291,7 +346,12 @@ fn comment_lines(text: &str) -> String {
 pub fn create(db: &DbProject, kind: Kind, req: &Request, date: (i32, u32, u32)) -> Result<Created, String> {
     let comment = req.comment.trim();
     if comment.is_empty() {
-        return Err(if kind.is_routine() { tr("Say what the change does (the comment)") } else { tr("Name the feature") }.into());
+        return Err(match kind {
+            Kind::Module => tr("Say what the module is for (the comment)"),
+            _ if kind.is_routine() => tr("Say what the change does (the comment)"),
+            _ => tr("Name the feature"),
+        }
+        .into());
     }
     if req.dev && kind != Kind::Data {
         return Err(tr("Development only applies to data changesets").into());
@@ -308,7 +368,42 @@ pub fn create(db: &DbProject, kind: Kind, req: &Request, date: (i32, u32, u32)) 
     let author = &db.author;
     let stem = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
     let rel = path.strip_prefix(db.dir.join("changelog")).unwrap_or(&path).to_string_lossy().replace('\\', "/");
-    let (content, heading) = if kind.is_routine() {
+    let (content, heading) = if kind == Kind::Module {
+        let (number, name) = module_parts(db, req)?;
+        let owner = &db.owner;
+        let api = db.api_role();
+        let mut contracts = vec![format!("{name}_app")];
+        if req.public {
+            contracts.push(format!("{name}_public"));
+        }
+        let mut schemas = vec![name.clone(), format!("{name}_app")];
+        if req.public {
+            schemas.push(format!("{name}_public"));
+        }
+        schemas.push(format!("{name}_internal"));
+        let mut text = format!(
+            "--liquibase formatted sql\n\n--changeset {author}:{stem} splitStatements:false\n{}",
+            comment_lines(&format!("Module {name} (changelog/modules/{number}-{name}): {comment}"))
+        );
+        for schema in &schemas {
+            text.push_str(&format!("CREATE SCHEMA {schema} AUTHORIZATION {owner};\n"));
+        }
+        text.push_str(&format!("\nSET LOCAL ROLE {owner};\n\n"));
+        for c in &contracts {
+            text.push_str(&format!(
+                "GRANT USAGE ON SCHEMA {c} TO {api};\nALTER DEFAULT PRIVILEGES IN SCHEMA {c} GRANT SELECT ON TABLES TO {api};\nALTER DEFAULT PRIVILEGES IN SCHEMA {c} GRANT EXECUTE ON ROUTINES TO {api};\n"
+            ));
+        }
+        text.push_str("\n$0\nRESET ROLE;\n\n");
+        for schema in schemas.iter().rev() {
+            text.push_str(&format!("--rollback DROP SCHEMA {schema};\n"));
+        }
+        let folder = db.dir.join("changelog/modules").join(format!("{number}-{name}"));
+        std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+        // Git keeps the empty module until its first object.
+        std::fs::write(folder.join(".gitkeep"), "").map_err(|e| e.to_string())?;
+        (text, format!("{name}: new module {number}-{name}"))
+    } else if kind.is_routine() {
         let (schema, object) = routine_name(&req.module, &req.name)?;
         let id = format!("{}-{}-{}", kind.singular(), schema.replace('_', "-"), object.replace('_', "-"));
         let body = match kind {
@@ -464,6 +559,49 @@ mod tests {
     }
 
     #[test]
+    fn another_module_gets_its_folder_schemas_grants_and_entry() {
+        let (_tmp, db) = project();
+        let p = load(&db);
+        assert_eq!((p.next_module_number().as_str(), p.api_role().as_str()), ("15", "${role_prefix}_api"));
+        let day = (2026, 11, 24);
+        let req = Request { number: "15".into(), name: "Invoicing".into(), comment: "Invoices of the shop's orders.".into(), public: true, ..Default::default() };
+        let created = create(&p, Kind::Module, &req, day).unwrap();
+        assert_eq!(created.path, db.join("changelog/2026/1-ddl/20261124-01-invoicing-create-module.sql"));
+        assert!(db.join("changelog/modules/15-invoicing/.gitkeep").is_file());
+        let text = std::fs::read_to_string(&created.path).unwrap();
+        assert_eq!(
+            text,
+            "--liquibase formatted sql\n\n--changeset shop:20261124-01-invoicing-create-module splitStatements:false\n--comment: Module invoicing (changelog/modules/15-invoicing): Invoices of the shop's orders.\n\
+CREATE SCHEMA invoicing AUTHORIZATION ${role_prefix}_owner;\nCREATE SCHEMA invoicing_app AUTHORIZATION ${role_prefix}_owner;\nCREATE SCHEMA invoicing_public AUTHORIZATION ${role_prefix}_owner;\nCREATE SCHEMA invoicing_internal AUTHORIZATION ${role_prefix}_owner;\n\n\
+SET LOCAL ROLE ${role_prefix}_owner;\n\n\
+GRANT USAGE ON SCHEMA invoicing_app TO ${role_prefix}_api;\nALTER DEFAULT PRIVILEGES IN SCHEMA invoicing_app GRANT SELECT ON TABLES TO ${role_prefix}_api;\nALTER DEFAULT PRIVILEGES IN SCHEMA invoicing_app GRANT EXECUTE ON ROUTINES TO ${role_prefix}_api;\n\
+GRANT USAGE ON SCHEMA invoicing_public TO ${role_prefix}_api;\nALTER DEFAULT PRIVILEGES IN SCHEMA invoicing_public GRANT SELECT ON TABLES TO ${role_prefix}_api;\nALTER DEFAULT PRIVILEGES IN SCHEMA invoicing_public GRANT EXECUTE ON ROUTINES TO ${role_prefix}_api;\n\n\nRESET ROLE;\n\n\
+--rollback DROP SCHEMA invoicing_internal;\n--rollback DROP SCHEMA invoicing_public;\n--rollback DROP SCHEMA invoicing_app;\n--rollback DROP SCHEMA invoicing;\n"
+        );
+        assert!(text[..text.char_indices().nth(created.caret).unwrap().0].ends_with("TO ${role_prefix}_api;\n\n"), "the caret before RESET ROLE");
+        let log = std::fs::read_to_string(db.join("CHANGELOG.md")).unwrap();
+        assert!(log.contains("## 2026-11-24 (invoicing: new module 15-invoicing)\n\n- `2026/1-ddl/20261124-01-invoicing-create-module.sql`\n"), "{log}");
+        // The new module is offered, its number and name are taken.
+        let p = load(&db);
+        assert_eq!(p.modules, ["00-platform", "10-crm", "15-invoicing"]);
+        assert_eq!(p.next_module_number(), "20");
+        let again = |number: &str, name: &str| create(&p, Kind::Module, &Request { number: number.into(), name: name.into(), comment: "x".into(), ..Default::default() }, day).unwrap_err();
+        assert!(again("15", "billing").contains("15-invoicing"));
+        assert!(again("20", "invoicing").contains("15-invoicing"));
+        assert!(again("2", "billing").contains("two digits"));
+        assert!(again("20", "billing_app").contains("lower-case"));
+        // Numbers after the highest below 90: a multiple of 5, else the next free one.
+        let numbered = |m: &[&str]| DbProject { modules: m.iter().map(|x| x.to_string()).collect(), ..p.clone() }.next_module_number();
+        assert_eq!(numbered(&["00-platform", "05-a", "88-reports", "90-owner"]), "89");
+        assert_eq!(numbered(&["00-platform", "40-a", "90-owner"]), "45");
+        assert_eq!(numbered(&["00-platform", "43-a"]), "45");
+        assert_eq!(numbered(&[]), "10");
+        // A project with its own role names.
+        let plans = DbProject { owner: "plans_owner".into(), ..p.clone() };
+        assert_eq!(plans.api_role(), "plans_api");
+    }
+
+    #[test]
     fn entries_join_an_existing_section() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("CHANGELOG.md"), "# Database changelog\n\n## 2026-11-24 (A)\n\n- `a.sql`\n- `b.sql`\n\n## 2026-11-25 (B)\n\n- `c.sql`\n").unwrap();
@@ -495,6 +633,24 @@ mod parity {
         create(&p, Kind::Data, &Request { comment: "Seed admins".into(), dev: true, ..Default::default() }, day).unwrap();
         create(&p, Kind::View, &Request { comment: "Lists the orders.".into(), module: "05-scheduling".into(), name: "order_list".into(), ..Default::default() }, day).unwrap();
         create(&p, Kind::Procedure, &Request { comment: "Checks an order.".into(), module: "05-scheduling".into(), name: "crm_internal.order_check".into(), ..Default::default() }, day).unwrap();
+    }
+
+    /// `PARITY_DB=<copy of a db/>`: a new module and a view in it, for its check-module-changesets.sh.
+    #[test]
+    #[ignore = "creates a module in a copy of a real project; needs PARITY_DB"]
+    fn a_new_module_for_the_checker() {
+        let db = PathBuf::from(std::env::var("PARITY_DB").expect("PARITY_DB"));
+        let p = load(&db);
+        let day = today();
+        let number = p.next_module_number();
+        create(&p, Kind::Module, &Request { number: number.clone(), name: "billing".into(), comment: "Bills of the organization's clients.".into(), public: true, ..Default::default() }, day).unwrap();
+        let p = load(&db);
+        let module = format!("{number}-billing");
+        let view = create(&p, Kind::View, &Request { comment: "Lists the bills.".into(), module, name: "bill_list".into(), ..Default::default() }, day).unwrap();
+        // The view's body as a developer would write it.
+        let text = std::fs::read_to_string(&view.path).unwrap().replace("    -- columns: new ones only at the end\nFROM\nWHERE;", "    1 AS id;");
+        std::fs::write(&view.path, text).unwrap();
+        println!("{number}");
     }
 }
 
@@ -568,5 +724,13 @@ mod screens {
         let mut h = crate::screens::harness(app, egui::vec2(1280.0, 800.0));
         h.run_steps(4);
         h.render().unwrap().save(out.join("new-changeset-dark.png")).unwrap();
+        if let Some(crate::ui::dialogs::Dialog::NewChangeset(form)) = &mut h.state_mut().dialog {
+            form.kind = super::Kind::Module;
+            form.req.name = "invoicing".into();
+            form.req.comment = "Invoices of the shop's orders and their payments.".into();
+            form.req.public = true;
+        }
+        h.run_steps(3);
+        h.render().unwrap().save(out.join("new-module-dark.png")).unwrap();
     }
 }

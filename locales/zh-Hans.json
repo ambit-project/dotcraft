@@ -1842,6 +1842,16 @@
     "What the change does (the --comment)": "此更改的作用（--comment）",
     "New Changeset…": "新建 changeset…",
     "DDL": "DDL",
-    "Data": "数据"
+    "Data": "数据",
+    "Module {module} already exists": "模块 {module} 已存在",
+    "Number {number} is taken by {module}": "编号 {number} 已被 {module} 占用",
+    "Say what the module is for (the comment)": "请说明模块的用途（注释）",
+    "The module's name: lower-case letters, digits and underscores, starting with a letter, e.g. invoicing": "模块名：小写字母、数字和下划线，以字母开头，例如 invoicing",
+    "The module's number has two digits (its place in the dependency order), e.g. 35": "模块编号为两位数字（在依赖顺序中的位置），例如 35",
+    "Also the {schema} contract (without a session)": "同时提供 {schema} 契约（无需会话）",
+    "Its place in the dependency order: a module uses only modules with a lower number": "在依赖顺序中的位置：模块只使用编号更小的模块",
+    "Module name, e.g. invoicing": "模块名，例如 invoicing",
+    "Schemas owned by {owner}; {api} may use the contract": "架构归 {owner} 所有；{api} 使用契约",
+    "What the module is for (the --comment)": "模块的用途（--comment）"
   }
 }

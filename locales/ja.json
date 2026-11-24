@@ -1842,6 +1842,16 @@
     "What the change does (the --comment)": "変更の内容（--comment）",
     "New Changeset…": "新しい changeset…",
     "DDL": "DDL",
-    "Data": "データ"
+    "Data": "データ",
+    "Module {module} already exists": "モジュール {module} は既に存在します",
+    "Number {number} is taken by {module}": "番号 {number} は {module} が使用しています",
+    "Say what the module is for (the comment)": "モジュールの目的を書いてください（コメント）",
+    "The module's name: lower-case letters, digits and underscores, starting with a letter, e.g. invoicing": "モジュール名: 英小文字・数字・アンダースコア、先頭は英字（例: invoicing）",
+    "The module's number has two digits (its place in the dependency order), e.g. 35": "モジュール番号は 2 桁です（依存順での位置、例: 35）",
+    "Also the {schema} contract (without a session)": "{schema} の契約も作る（セッションなし）",
+    "Its place in the dependency order: a module uses only modules with a lower number": "依存順での位置: モジュールは番号の小さいモジュールだけを使えます",
+    "Module name, e.g. invoicing": "モジュール名（例: invoicing）",
+    "Schemas owned by {owner}; {api} may use the contract": "スキーマの所有者は {owner}、契約は {api} が使います",
+    "What the module is for (the --comment)": "モジュールの目的（--comment）"
   }
 }
